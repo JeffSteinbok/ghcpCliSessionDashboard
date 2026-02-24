@@ -175,15 +175,24 @@ def main():
     parser = argparse.ArgumentParser(
         prog="copilot-dashboard",
         description="Copilot Dashboard - monitor all your Copilot CLI sessions",
+        epilog=(
+            "Examples:\n"
+            "  copilot-dashboard start                  Start in foreground\n"
+            "  copilot-dashboard start --background     Start as background process\n"
+            "  copilot-dashboard start -b --port 8080   Background on custom port\n"
+            "  copilot-dashboard stop                   Stop the background server\n"
+            "  copilot-dashboard status                 Check if server is running\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     sub = parser.add_subparsers(dest="command")
 
     start_p = sub.add_parser("start", help="Start the dashboard web server")
-    start_p.add_argument("--port", type=int, default=DEFAULT_PORT)
-    start_p.add_argument("--background", "-b", action="store_true", help="Run in background")
+    start_p.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"Port to listen on (default: {DEFAULT_PORT})")
+    start_p.add_argument("--background", "-b", action="store_true", help="Run as a background process (detached)")
 
-    sub.add_parser("stop", help="Stop the dashboard server")
-    sub.add_parser("status", help="Check if the dashboard is running")
+    sub.add_parser("stop", help="Stop the background dashboard server")
+    sub.add_parser("status", help="Check if the dashboard server is running")
 
     serve_p = sub.add_parser("_serve", help=argparse.SUPPRESS)
     serve_p.add_argument("--port", type=int, default=DEFAULT_PORT)
