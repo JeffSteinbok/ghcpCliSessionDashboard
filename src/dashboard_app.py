@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 if sys.version_info < (3, 12):
     sys.exit("Error: Python >= 3.12 is required. Found: " + sys.version)
 
-from flask import Flask, jsonify, render_template, send_from_directory
+from flask import Flask, jsonify, render_template, request, send_from_directory
 
 from .__version__ import __version__
 from .process_tracker import (
