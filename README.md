@@ -31,9 +31,6 @@ pip install ghcp-cli-dashboard
 git clone https://github.com/JeffSteinbok/ghcpCliSessionDashboard.git
 cd ghcpCliSessionDashboard
 
-# Install prerequisites
-python -m src.session_dashboard install
-
 # Start the dashboard
 python -m src.session_dashboard start
 ```
@@ -41,9 +38,6 @@ python -m src.session_dashboard start
 ## Usage
 
 ```bash
-# Install prerequisites (one-time)
-copilot-dashboard install
-
 # Start the dashboard
 copilot-dashboard start
 
@@ -99,13 +93,13 @@ Click the 🔕 button in the header to enable browser notifications. You'll get 
 | `flask` | Web server |
 | `pywin32` | Window focus and process detection (Windows-only) |
 
-Run `copilot-dashboard install` to install both.
+Both are installed automatically via `pip install ghcp-cli-dashboard`.
 
 ## Architecture
 
 | Module | Role |
 |--------|------|
-| `session_dashboard.py` | CLI entry point with `install`, `start`, `stop`, `status` subcommands |
+| `session_dashboard.py` | CLI entry point with `start`, `stop`, `status` subcommands |
 | `dashboard_app.py` | Flask app with REST API and embedded HTML/JS/CSS single-page dashboard |
 | `process_tracker.py` | Detects running copilot processes, reads `events.jsonl` for session state, extracts MCP servers, and uses Win32 APIs for window focus |
 
