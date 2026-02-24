@@ -313,7 +313,8 @@ function render() {
     const hay = [s.summary, s.repository, s.branch, s.cwd, s.group, s.intent, ...(s.mcp_servers || [])].filter(Boolean).join(' ').toLowerCase();
     if (filter && !hay.includes(filter)) return;
     if (searchQuery && !hay.includes(searchQuery)) return;
-    if (runningPids[s.id]) { active.push(s); } else { previous.push(s); }
+    const fiveDaysAgo = Date.now() - 5 * 24 * 60 * 60 * 1000;
+    if (runningPids[s.id]) { active.push(s); } else if (new Date(s.updated_at).getTime() >= fiveDaysAgo) { previous.push(s); }
   });
 
   document.getElementById('active-count').textContent = active.length;
@@ -393,6 +394,7 @@ function renderPanel(panelId, sessions, isActive) {
         <div class="session-card ${cardClass} ${isExpanded ? 'expanded' : ''}" data-id="${s.id}">
           <div style="display:flex;gap:10px">
             <div style="flex:1;min-width:0" onclick="toggleDetail('${s.id}')" style="cursor:pointer">
+              <div class="session-time" title="${esc(s.updated_at)}">started ${esc(s.created_ago)}${isRunning && pinfo.yolo ? ` <span class="badge badge-yolo">&#x1F525; YOLO</span>` : ''}</div>
               <div class="session-top" onclick="toggleDetail('${s.id}')">
                 ${isRunning ? `<span class="live-dot ${isWaiting ? 'waiting' : (isIdle ? 'idle' : '')}" title="${isWaiting ? 'Waiting for input' : (isIdle ? 'Idle' : 'Running')}"></span>` : ''}
                 <div class="session-title">${isRunning && s.intent ? '&#x1F916; ' + esc(s.intent) : esc(s.summary || '(Untitled session)')}</div>
@@ -405,16 +407,12 @@ function renderPanel(panelId, sessions, isActive) {
               <div class="session-meta">
                 ${isRunning && state ? `<span class="badge ${stateCls[state] || 'badge-active'}">${stateIcons[state] || state}</span>` : ''}
                 ${isRunning && pinfo.bg_tasks ? `<span class="badge badge-bg">&#x2699;&#xFE0F; ${pinfo.bg_tasks} bg task${pinfo.bg_tasks > 1 ? 's' : ''}</span>` : ''}
-                ${s.branch ? `<span class="branch-badge">&#x2387; ${esc(s.branch)}</span>` : ''}
+                ${s.branch ? `<span class="branch-badge">&#x2387; ${s.repository ? esc(s.repository) + ' / ' : ''}${esc(s.branch)}</span>` : ''}
                 <span class="badge badge-turns">&#x1F4AC; ${s.turn_count} turns</span>
                 ${s.checkpoint_count ? `<span class="badge badge-cp">&#x1F3C1; ${s.checkpoint_count} checkpoints</span>` : ''}
                 ${s.mcp_servers && s.mcp_servers.length ? s.mcp_servers.map(m => `<span class="badge badge-mcp">&#x1F50C; ${esc(m)}</span>`).join('') : ''}
                 <span class="badge badge-focus star-btn"onclick="event.stopPropagation();toggleStar('${s.id}')" title="Pin session">${starredSessions.has(s.id) ? '&#x2B50;' : '&#x2606;'}</span>
               </div>
-            </div>
-            <div style="flex-shrink:0;text-align:right">
-              <div class="session-time" title="${esc(s.updated_at)}">started ${esc(s.created_ago)}</div>
-              ${isRunning && pinfo.yolo ? `<div style="margin-top:4px"><span class="badge badge-yolo">&#x1F525; YOLO</span></div>` : ''}
             </div>
           </div>`;
 
@@ -603,13 +601,14 @@ function renderTilePanel(panelId, sessions, isActive) {
     html += `
       <div class="tile-card ${tileClass}" onclick="openTileDetail('${s.id}', '${esc(s.summary || '(Untitled)')}')">
         <div class="tile-subtitle" style="font-size:11px;opacity:0.6">${esc(s.group || 'General')}</div>
+        <div class="tile-subtitle" style="font-size:11px;opacity:0.7">started ${esc(s.created_ago)}</div>
         <div class="tile-top">
           ${isRunning ? `<span class="live-dot ${isWaiting ? 'waiting' : (isIdle ? 'idle' : '')}" style="flex-shrink:0"></span>` : ''}
           <div class="tile-title">${isRunning && s.intent ? '&#x1F916; ' + esc(s.intent) : esc(s.summary || '(Untitled session)')}</div>
           ${isRunning && pinfo.yolo ? `<span class="badge badge-yolo" style="flex-shrink:0">&#x1F525;</span>` : ''}
         </div>
         ${isRunning && s.intent ? `<div class="tile-subtitle" style="opacity:0.7">${esc(s.summary || '')}</div>` : ''}
-        <div class="tile-subtitle">started ${esc(s.created_ago)}${s.branch ? ` <span class="branch-badge">&#x2387; ${esc(s.branch)}</span>` : ''}</div>
+        ${s.branch ? `<div class="tile-subtitle"><span class="branch-badge">&#x2387; ${s.repository ? esc(s.repository) + ' / ' : ''}${esc(s.branch)}</span></div>` : ''}
         ${s.recent_activity ? `<div class="tile-subtitle" style="color:var(--accent)">${esc(s.recent_activity)}</div>` : ''}
         ${isWaiting && pinfo.waiting_context ? `<div class="tile-subtitle" style="color:var(--yellow)">${esc(pinfo.waiting_context.substring(0, 80))}${pinfo.waiting_context.length > 80 ? '...' : ''}</div>` : ''}
         <div class="tile-meta">
