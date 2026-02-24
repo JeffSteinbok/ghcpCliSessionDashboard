@@ -252,6 +252,8 @@ def api_sessions():
         # Token usage from event data
         s["input_tokens"] = evt.get("input_tokens", 0)
         s["output_tokens"] = evt.get("output_tokens", 0)
+        # Platform/OS from event data
+        s["platform"] = evt.get("platform", "")
         # Current intent (most useful for active sessions)
         s["intent"] = evt.get("intent", "")
         # Don't send large text fields to the client

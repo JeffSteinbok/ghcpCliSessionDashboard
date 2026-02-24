@@ -341,6 +341,7 @@ function renderPanel(panelId, sessions, isActive) {
                 ${s.checkpoint_count ? `<span class="badge badge-cp">&#x1F3C1; ${s.checkpoint_count} checkpoints</span>` : ''}
                 ${s.mcp_servers && s.mcp_servers.length ? s.mcp_servers.map(m => `<span class="badge badge-mcp">&#x1F50C; ${esc(m)}</span>`).join('') : ''}
                 ${(s.input_tokens || 0) + (s.output_tokens || 0) > 0 ? `<span class="badge" style="background:rgba(188,140,255,0.12);color:var(--purple)">&#x1F522; ${(((s.input_tokens||0)+(s.output_tokens||0))/1000).toFixed(1)}k tokens</span>` : ''}
+                ${platformEmoji(s.platform) ? `<span class="badge" style="background:var(--surface2);color:var(--text2)" title="${esc(s.platform)}">${platformEmoji(s.platform)}</span>` : ''}
                 <span class="badge badge-focus star-btn" onclick="event.stopPropagation();toggleStar('${s.id}')" title="Pin session">${starredSessions.has(s.id) ? '&#x2B50;' : '&#x2606;'}</span>
               </div>
             </div>
@@ -464,6 +465,15 @@ async function loadDetail(id) {
   }
 }
 
+function platformEmoji(p) {
+  if (!p) return '';
+  const pl = p.toLowerCase();
+  if (pl.includes('win')) return '&#x1FA9F;';
+  if (pl.includes('darwin') || pl.includes('mac')) return '&#x1F34E;';
+  if (pl.includes('linux')) return '&#x1F427;';
+  return '';
+}
+
 function buildToolCountsHtml(data) {
   if (!data.tool_counts || !data.tool_counts.length) return '';
   const maxCount = data.tool_counts[0].count;
@@ -550,6 +560,7 @@ function renderTilePanel(panelId, sessions, isActive) {
           <span class="badge badge-turns">&#x1F4AC; ${s.turn_count}</span>
           ${s.mcp_servers && s.mcp_servers.length ? s.mcp_servers.map(m => `<span class="badge badge-mcp">&#x1F50C; ${esc(m)}</span>`).join('') : ''}
           ${(s.input_tokens || 0) + (s.output_tokens || 0) > 0 ? `<span class="badge" style="background:rgba(188,140,255,0.12);color:var(--purple)">&#x1F522; ${(((s.input_tokens||0)+(s.output_tokens||0))/1000).toFixed(1)}k</span>` : ''}
+          ${platformEmoji(s.platform) ? `<span class="badge" style="background:var(--surface2);color:var(--text2)" title="${esc(s.platform)}">${platformEmoji(s.platform)}</span>` : ''}
           ${isRunning ? `<span class="badge badge-focus" onclick="event.stopPropagation(); focusSession('${s.id}')" title="Focus terminal window">&#x1F4FA;</span>` : ''}
           <span class="badge badge-focus" onclick="event.stopPropagation(); copyTileCmd(this, '${esc(s.restart_cmd)}')" title="Copy resume command">&#x1F4CB;</span>
           <span class="badge badge-focus" onclick="event.stopPropagation();navigator.clipboard.writeText('${s.id}');this.textContent='✓';setTimeout(()=>this.textContent='🪪',1200)" title="Copy session ID">&#x1FA96;</span>

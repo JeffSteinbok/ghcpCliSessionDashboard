@@ -430,6 +430,7 @@ def _read_event_data(session_id):
         "intent": "",
         "input_tokens": 0,
         "output_tokens": 0,
+        "platform": "",
     }
     events_file = os.path.join(EVENTS_DIR, session_id, "events.jsonl")
     if not os.path.exists(events_file):
@@ -454,6 +455,11 @@ def _read_event_data(session_id):
                         result["cwd"] = ctx.get("cwd", "")
                         result["branch"] = ctx.get("branch", "")
                         result["repository"] = ctx.get("repository", "")
+                        result["platform"] = (
+                            ctx.get("platform", "")
+                            or ctx.get("os", "")
+                            or evt.get("data", {}).get("platform", "")
+                        )
                     except Exception:
                         pass
                     continue
