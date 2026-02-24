@@ -25,17 +25,17 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install ruff black isort
+          pip install ruff mypy
           pip install -r requirements.txt
 
       - name: Run ruff linter
         run: |
           ruff check src/
 
-      - name: Run black formatter check
+      - name: Run ruff formatter check
         run: |
-          black --check src/
+          ruff format --check src/
 
-      - name: Run isort import sorting check
+      - name: Run mypy type check
         run: |
-          isort --check-only src/
+          mypy src/

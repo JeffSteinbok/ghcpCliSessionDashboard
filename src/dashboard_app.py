@@ -14,7 +14,7 @@ import argparse
 import os
 import sqlite3
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 if sys.version_info < (3, 12):
     sys.exit("Error: Python >= 3.12 is required. Found: " + sys.version)
@@ -52,7 +52,7 @@ def time_ago(iso_str):
         return "unknown"
     try:
         dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         seconds = int((now - dt).total_seconds())
         if seconds < 60:
             return f"{seconds}s ago"
@@ -454,6 +454,17 @@ TEMPLATE = r"""
   }
   .view-btn:hover { background: var(--copy-hover); }
   .view-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .notif-popover {
+    display: none; position: absolute; right: 0; top: calc(100% + 8px);
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 14px; font-size: 13px; color: var(--text1); white-space: nowrap;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.3); z-index: 200; line-height: 1.6;
+  }
+  .notif-popover.visible { display: block; }
+  .notif-popover .pop-title { font-weight: 600; margin-bottom: 4px; }
+  .notif-popover .pop-step { color: var(--text2); }
+  .notif-popover .pop-step span { color: var(--accent); font-weight: 600; }
+  #notif-wrap { position: relative; }
 
   /* ===== DETAIL MODAL ===== */
   .detail-modal-overlay {
@@ -557,7 +568,10 @@ TEMPLATE = r"""
       </div>
     </div>
     <div class="view-toggle">
-      <button class="view-btn" id="notif-btn" onclick="enableNotifications()" title="Enable desktop notifications">&#x1F515; Notifications Off</button>
+      <div id="notif-wrap">
+        <button class="view-btn" id="notif-btn" onclick="enableNotifications()" onmouseenter="showNotifHint()" onmouseleave="hideNotifHint()">&#x1F515; Notifications Off</button>
+        <div class="notif-popover" id="notif-popover"></div>
+      </div>
       <button class="view-btn active" id="view-tile" onclick="setView('tile')" title="Tile view">&#x25A6;</button>
       <button class="view-btn" id="view-list" onclick="setView('list')" title="List view">&#x2630;</button>
     </div>

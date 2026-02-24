@@ -13,7 +13,7 @@ import subprocess
 import sys
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 if sys.version_info < (3, 12):
     sys.exit("Error: Python >= 3.12 is required. Found: " + sys.version)
@@ -75,7 +75,7 @@ def _get_session_state(session_id):
     events_file = os.path.join(EVENTS_DIR, session_id, "events.jsonl")
     bg = 0
     try:
-        with open(events_file, "r", encoding="utf-8", errors="replace") as f:
+        with open(events_file, encoding="utf-8", errors="replace") as f:
             content = f.read()
             bg = max(0, content.count('"subagent.started"') - content.count('"subagent.completed"'))
     except Exception:
@@ -116,7 +116,7 @@ def _get_session_state(session_id):
         if last_ts:
             try:
                 evt_time = datetime.fromisoformat(last_ts.replace("Z", "+00:00"))
-                age = (datetime.now(timezone.utc) - evt_time).total_seconds()
+                age = (datetime.now(UTC) - evt_time).total_seconds()
                 if age > 60:
                     return "waiting", "Session likely waiting for input", bg
             except (ValueError, TypeError):
@@ -157,7 +157,7 @@ def _parse_mcp_servers(cmdline):
         return []
     config_path = match.group(1).strip('"').strip("'")
     try:
-        with open(config_path, "r", encoding="utf-8") as f:
+        with open(config_path, encoding="utf-8") as f:
             data = json.load(f)
         servers = data.get("mcpServers", {})
         return list(servers.keys())
@@ -192,7 +192,7 @@ def _match_process_to_session(creation_date_str):
         if not os.path.exists(events_file):
             continue
         try:
-            with open(events_file, "r", encoding="utf-8", errors="replace") as f:
+            with open(events_file, encoding="utf-8", errors="replace") as f:
                 first_line = f.readline().strip()
             if not first_line:
                 continue
@@ -370,7 +370,7 @@ def _get_running_sessions_unix():
         # No --resume or couldn't extract session ID — try timestamp matching
         try:
             proc_time = datetime.strptime(lstart_str, "%a %b %d %H:%M:%S %Y")
-            proc_time = proc_time.replace(tzinfo=timezone.utc)
+            proc_time = proc_time.replace(tzinfo=UTC)
             sid = _match_process_to_session(proc_time.isoformat())
             if sid and sid not in sessions:
                 sessions[sid] = proc_info
@@ -435,7 +435,7 @@ def _read_event_data(session_id):
         last_intent = ""
         tool_count = 0
         sub_count = 0
-        with open(events_file, "r", encoding="utf-8", errors="replace") as f:
+        with open(events_file, encoding="utf-8", errors="replace") as f:
             for line in f:
                 line = line.strip()
                 if not line:
