@@ -346,7 +346,7 @@ function renderStats(active, previous) {
     <div class="stat-card"><div class="num">${activeTurns.toLocaleString()}</div><div class="label">Conversations${sub}</div></div>
     <div class="stat-card"><div class="num">${activeToolCalls.toLocaleString()}</div><div class="label">Tool Calls${sub}</div></div>
     <div class="stat-card"><div class="num">${activeSubagents.toLocaleString()}</div><div class="label">Sub-agents${sub}</div></div>
-    ${activeBgTasks ? `<div class="stat-card"><div class="num">${activeBgTasks.toLocaleString()}</div><div class="label">Background Tasks${sub}</div></div>` : ''}
+    <div class="stat-card"><div class="num">${activeBgTasks.toLocaleString()}</div><div class="label">Background Tasks${sub}</div></div>
   `;
 }
 
