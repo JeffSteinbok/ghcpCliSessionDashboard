@@ -79,17 +79,17 @@
 
   <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
     <div class="tabs" style="margin-bottom:0;flex:1">
-      <div class="tab active" data-tab="active" onclick="switchTab('active')">
+      <div class="tab active" data-tab="active" onclick="switchTab('active')" title="Currently running Copilot CLI sessions">
         &#x26A1; Active <span class="count" id="active-count">0</span>
       </div>
-      <div class="tab" data-tab="previous" onclick="switchTab('previous')">
+      <div class="tab" data-tab="previous" onclick="switchTab('previous')" title="Completed sessions from the last 5 days">
         &#x1F4CB; Previous <span class="count" id="previous-count">0</span>
       </div>
-      <div class="tab" data-tab="files" onclick="switchTab('files')">
-        &#x1F4C1; Files
-      </div>
-      <div class="tab" data-tab="timeline" onclick="switchTab('timeline')">
+      <div class="tab" data-tab="timeline" onclick="switchTab('timeline')" title="Gantt-style view of session activity over the last 5 days">
         &#x1F4C5; Timeline
+      </div>
+      <div class="tab" data-tab="files" onclick="switchTab('files')" title="Files most frequently edited across recent sessions">
+        &#x1F4C1; Files
       </div>
     </div>
     <div class="view-toggle">
