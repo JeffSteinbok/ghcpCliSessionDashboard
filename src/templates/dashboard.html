@@ -68,6 +68,21 @@
   </div>
 </div>
 
+<!-- ===== COMPARE MODAL ===== -->
+<div class="modal-overlay" id="compare-modal" onclick="if(event.target===this)closeCompareModal()">
+  <div class="modal" style="max-width:900px">
+    <div style="display:flex;align-items:center;margin-bottom:16px">
+      <h2 style="flex:1">&#x1F4CA; Session Comparison</h2>
+      <button class="close-btn" onclick="closeCompareModal()" style="margin-top:0">&#x2715;</button>
+    </div>
+    <div id="compare-modal-body"><div class="loading">Loading...</div></div>
+  </div>
+</div>
+<!-- ===== FLOATING COMPARE BUTTON ===== -->
+<div id="compare-bar" style="display:none;position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:300;background:var(--accent);color:#fff;padding:10px 24px;border-radius:24px;box-shadow:0 4px 16px rgba(0,0,0,0.3);cursor:pointer;font-weight:600;font-size:14px" onclick="openCompareModal()">
+  &#x1F4CA; Compare 2 sessions
+</div>
+
 <!-- ===== DETAIL MODAL (for tile view) ===== -->
 <div class="detail-modal-overlay" id="detail-modal" onclick="if(event.target===this)closeDetailModal()">
   <div class="detail-modal">

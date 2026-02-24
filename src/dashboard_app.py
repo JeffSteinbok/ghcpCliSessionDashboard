@@ -284,6 +284,10 @@ def api_session_detail(session_id):
         "FROM turns WHERE session_id = ? ORDER BY turn_index DESC LIMIT 10",
         (session_id,),
     ).fetchall()
+    files = db.execute(
+        "SELECT DISTINCT file_path FROM session_files WHERE session_id = ? ORDER BY file_path",
+        (session_id,),
+    ).fetchall()
     db.close()
     # Read tool counts from events.jsonl
     events_dir = os.path.join(os.path.expanduser("~"), ".copilot", "session-state")
@@ -312,6 +316,7 @@ def api_session_detail(session_id):
             "turns": [dict(r) for r in reversed(list(turns))],
             "recent_output": get_recent_output(session_id),
             "tool_counts": tool_counts,
+            "files": [r["file_path"] for r in files],
         }
     )
 
