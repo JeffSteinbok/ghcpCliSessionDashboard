@@ -8,7 +8,6 @@ let expandedSessionIds = new Set();  // persist across re-renders
 let collapsedGroups = new Set();     // persist across re-renders
 let loadedDetails = {};              // cache detail HTML by session id
 let currentView = localStorage.getItem('dash-view') || 'tile';
-let searchQuery = '';
 let starredSessions = new Set(JSON.parse(localStorage.getItem('dash-starred') || '[]'));
 
 // ===== DISCONNECT DETECTION =====
@@ -314,7 +313,6 @@ function render() {
   allSessions.forEach(s => {
     const hay = [s.summary, s.repository, s.branch, s.cwd, s.group, s.intent, ...(s.mcp_servers || [])].filter(Boolean).join(' ').toLowerCase();
     if (filter && !hay.includes(filter)) return;
-    if (searchQuery && !hay.includes(searchQuery)) return;
     const fiveDaysAgo = Date.now() - 5 * 24 * 60 * 60 * 1000;
     if (runningPids[s.id]) { active.push(s); } else if (new Date(s.updated_at).getTime() >= fiveDaysAgo) { previous.push(s); }
   });
@@ -698,7 +696,6 @@ function closeDetailModal() {
 
 // ===== SEARCH =====
 document.getElementById('search').addEventListener('input', () => render());
-document.getElementById('search-input').oninput = e => { searchQuery = e.target.value.toLowerCase(); render(); };
 
 // ===== POLLING =====
 // Active sessions: refresh process list every 5s
