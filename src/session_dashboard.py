@@ -84,9 +84,7 @@ def cmd_start(args):
             old_pid = int(f.read().strip())
         try:
             os.kill(old_pid, 0)
-            print(
-                f"Dashboard already running (PID {old_pid}) at http://localhost:{args.port}"
-            )
+            print(f"Dashboard already running (PID {old_pid}) at http://localhost:{args.port}")
             return
         except OSError:
             os.remove(PID_FILE)
@@ -152,9 +150,7 @@ def cmd_stop(_args):
 
     try:
         if sys.platform == "win32":
-            subprocess.run(
-                ["taskkill", "/F", "/PID", str(pid)], capture_output=True, check=False
-            )
+            subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True, check=False)
         else:
             os.kill(pid, signal.SIGTERM)
         print(f"Dashboard stopped (PID {pid}).")
@@ -194,9 +190,7 @@ def main():
 
     start_p = sub.add_parser("start", help="Start the dashboard web server")
     start_p.add_argument("--port", type=int, default=DEFAULT_PORT)
-    start_p.add_argument(
-        "--background", "-b", action="store_true", help="Run in background"
-    )
+    start_p.add_argument("--background", "-b", action="store_true", help="Run in background")
 
     sub.add_parser("stop", help="Stop the dashboard server")
     sub.add_parser("status", help="Check if the dashboard is running")

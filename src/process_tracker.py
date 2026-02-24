@@ -79,8 +79,7 @@ def _get_session_state(session_id):
             content = f.read()
             bg = max(
                 0,
-                content.count('"subagent.started"')
-                - content.count('"subagent.completed"'),
+                content.count('"subagent.started"') - content.count('"subagent.completed"'),
             )
     except Exception:
         pass
@@ -446,9 +445,7 @@ def _read_event_data(session_id):
                     continue
 
                 # Fast string pre-checks to avoid JSON parsing every line
-                if (
-                    '"session.start"' in line or '"session.resume"' in line
-                ) and not result["cwd"]:
+                if ('"session.start"' in line or '"session.resume"' in line) and not result["cwd"]:
                     try:
                         evt = json.loads(line)
                         ctx = evt.get("data", {}).get("context", {})
@@ -459,9 +456,7 @@ def _read_event_data(session_id):
                         pass
                     continue
 
-                if not mcp_found and (
-                    '"infoType":"mcp"' in line or '"infoType": "mcp"' in line
-                ):
+                if not mcp_found and ('"infoType":"mcp"' in line or '"infoType": "mcp"' in line):
                     try:
                         evt = json.loads(line)
                         msg = evt.get("data", {}).get("message", "")
@@ -554,11 +549,7 @@ def get_recent_output(session_id, max_lines=10):
                 if event.get("type") != "tool.execution_complete":
                     continue
                 content = event.get("data", {}).get("result", {}).get("content", "")
-                if (
-                    not content
-                    or len(content) < 5
-                    or content.strip() == "Intent logged"
-                ):
+                if not content or len(content) < 5 or content.strip() == "Intent logged":
                     continue
                 output_lines = content.strip().split("\n")
             except Exception:
