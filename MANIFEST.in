@@ -3,4 +3,4 @@ include requirements.txt
 include LICENSE
 recursive-include src *.py
 recursive-include src/templates *.html
-recursive-include src/static *.css *.js
+recursive-include src/static *.css *.js *.png *.svg *.ico
