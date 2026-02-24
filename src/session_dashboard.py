@@ -188,8 +188,15 @@ def main():
     sub = parser.add_subparsers(dest="command")
 
     start_p = sub.add_parser("start", help="Start the dashboard web server")
-    start_p.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"Port to listen on (default: {DEFAULT_PORT})")
-    start_p.add_argument("--background", "-b", action="store_true", help="Run as a background process (detached)")
+    start_p.add_argument(
+        "--port",
+        type=int,
+        default=DEFAULT_PORT,
+        help=f"Port to listen on (default: {DEFAULT_PORT})",
+    )
+    start_p.add_argument(
+        "--background", "-b", action="store_true", help="Run as a background process (detached)"
+    )
 
     sub.add_parser("stop", help="Stop the background dashboard server")
     sub.add_parser("status", help="Check if the dashboard server is running")
