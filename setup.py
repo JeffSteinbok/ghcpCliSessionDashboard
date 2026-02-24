@@ -21,7 +21,7 @@ with open(readme_file, encoding="utf-8") as f:
     long_description = f.read()
 
 setup(
-    name="GitHub-Copilot-Session-Dashboard",
+    name="ghcp-cli-dashboard",
     version=version["__version__"],
     description="A local web dashboard that monitors all your GitHub Copilot CLI sessions in real-time",
     long_description=long_description,

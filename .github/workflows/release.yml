@@ -131,7 +131,7 @@ jobs:
             ### Installation
 
             ```bash
-            pip install GitHub-Copilot-Session-Dashboard
+            pip install ghcp-cli-dashboard
             ```
 
             ### What's New
