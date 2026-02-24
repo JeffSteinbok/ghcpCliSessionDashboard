@@ -106,6 +106,34 @@ function switchTab(tab) {
   currentTab = tab;
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + tab));
+  if (tab === 'files') renderFilesTab();
+  if (tab === 'timeline') renderTimelineTab();
+}
+
+async function renderFilesTab() {
+  const panel = document.getElementById('panel-files');
+  panel.innerHTML = '<div class="loading">Loading files...</div>';
+  try {
+    const resp = await fetch('/api/files');
+    const files = await resp.json();
+    if (!files.length) { panel.innerHTML = '<div class="empty">No file data available.</div>'; return; }
+    const maxCount = files[0].session_count;
+    let html = '<table style="width:100%;border-collapse:collapse;font-size:13px">';
+    html += '<thead><tr><th style="text-align:left;padding:6px 8px;color:var(--text2);border-bottom:1px solid var(--border)">File path</th><th style="text-align:left;padding:6px 8px;color:var(--text2);border-bottom:1px solid var(--border)">Sessions</th><th style="width:200px;padding:6px 8px;color:var(--text2);border-bottom:1px solid var(--border)">Frequency</th></tr></thead><tbody>';
+    files.forEach(f => {
+      const pct = Math.round((f.session_count / maxCount) * 100);
+      const shortPath = f.file_path.length > 80 ? '...' + f.file_path.slice(-77) : f.file_path;
+      html += `<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:6px 8px;font-family:monospace;color:var(--text2)">${esc(shortPath)}</td>
+        <td style="padding:6px 8px;color:var(--text)">${f.session_count}</td>
+        <td style="padding:6px 8px"><div style="height:8px;background:var(--surface2);border-radius:4px"><div style="width:${pct}%;height:100%;background:var(--accent);border-radius:4px"></div></div></td>
+      </tr>`;
+    });
+    html += '</tbody></table>';
+    panel.innerHTML = html;
+  } catch(e) {
+    panel.innerHTML = '<div class="empty">Error loading files.</div>';
+  }
 }
 
 // ===== DATA FETCH =====

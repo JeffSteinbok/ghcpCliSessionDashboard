@@ -316,6 +316,23 @@ def api_session_detail(session_id):
     )
 
 
+@app.route("/api/files")
+def api_files():
+    """Return most-edited files across all sessions."""
+    try:
+        db = get_db()
+    except FileNotFoundError as e:
+        return jsonify({"error": str(e)}), 503
+    rows = db.execute("""
+        SELECT sf.file_path, COUNT(DISTINCT sf.session_id) as session_count,
+        GROUP_CONCAT(DISTINCT sf.session_id) as session_ids
+        FROM session_files sf GROUP BY sf.file_path
+        ORDER BY session_count DESC LIMIT 100
+    """).fetchall()
+    db.close()
+    return jsonify([dict(r) for r in rows])
+
+
 @app.route("/api/processes")
 def api_processes():
     """Return currently running copilot sessions mapped by session ID."""
