@@ -166,6 +166,9 @@ TEMPLATE = r"""
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Copilot Session Dashboard</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0d1117">
+<script>if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js'); }</script>
 <style>
   /* ===== THEME SYSTEM ===== */
   /* Default Dark */
@@ -1200,6 +1203,31 @@ def favicon():
   <path d="M9 20 Q16 26 23 20" stroke="url(#g)" stroke-width="2" fill="none" stroke-linecap="round"/>
 </svg>'''
     return svg, 200, {"Content-Type": "image/svg+xml"}
+
+
+@app.route("/manifest.json")
+def manifest():
+    """PWA web app manifest — enables 'Install app' in Chrome/Edge."""
+    data = {
+        "name": "Copilot Session Dashboard",
+        "short_name": "Sessions",
+        "description": "Monitor all your GitHub Copilot CLI sessions in real-time.",
+        "start_url": "/",
+        "display": "standalone",
+        "background_color": "#0d1117",
+        "theme_color": "#0d1117",
+        "icons": [
+            {"src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable"},
+        ],
+    }
+    return jsonify(data)
+
+
+@app.route("/sw.js")
+def service_worker():
+    """Minimal service worker required for PWA installability."""
+    js = "self.addEventListener('fetch', () => {});"
+    return js, 200, {"Content-Type": "application/javascript", "Service-Worker-Allowed": "/"}
 
 
 # ---------------------------------------------------------------------------
