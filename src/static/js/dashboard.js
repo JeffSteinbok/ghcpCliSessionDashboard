@@ -334,17 +334,15 @@ function render() {
 }
 
 function renderStats(active, previous) {
-  const total = allSessions.length;
-  const totalTurns = allSessions.reduce((a, s) => a + (s.turn_count || 0), 0);
-  const totalToolCalls = allSessions.reduce((a, s) => a + (s.tool_calls || 0), 0);
-  const totalSubagents = allSessions.reduce((a, s) => a + (s.subagent_runs || 0), 0);
-  document.getElementById('stats-row').innerHTML = `
-    <div class="stat-card"><div class="num">${active.length}</div><div class="label">Active Now</div></div>
-    <div class="stat-card"><div class="num">${total}</div><div class="label">Total Sessions</div></div>
-    <div class="stat-card"><div class="num">${totalTurns.toLocaleString()}</div><div class="label">Conversations</div></div>
-    <div class="stat-card"><div class="num">${totalToolCalls.toLocaleString()}</div><div class="label">Tool Calls</div></div>
-    <div class="stat-card"><div class="num">${totalSubagents.toLocaleString()}</div><div class="label">Sub-agents</div></div>
-  `;
+  const activeTurns = active.reduce((a, s) => a + (s.turn_count || 0), 0);
+  const activeToolCalls = active.reduce((a, s) => a + (s.tool_calls || 0), 0);
+  const activeSubagents = active.reduce((a, s) => a + (s.subagent_runs || 0), 0);
+  document.getElementById('stats-row').innerHTML = active.length ? `
+    <div class="stat-card"><div class="num">${active.length}</div><div class="label">Running</div></div>
+    <div class="stat-card"><div class="num">${activeTurns.toLocaleString()}</div><div class="label">Conversations</div></div>
+    <div class="stat-card"><div class="num">${activeToolCalls.toLocaleString()}</div><div class="label">Tool Calls</div></div>
+    <div class="stat-card"><div class="num">${activeSubagents.toLocaleString()}</div><div class="label">Sub-agents</div></div>
+  ` : '';
 }
 
 function renderPanel(panelId, sessions, isActive) {
