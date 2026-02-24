@@ -600,7 +600,6 @@ function renderTilePanel(panelId, sessions, isActive) {
 
     html += `
       <div class="tile-card ${tileClass}" onclick="openTileDetail('${s.id}', '${esc(s.summary || '(Untitled)')}')">
-        <div class="tile-subtitle" style="font-size:11px;opacity:0.6">${esc(s.group || 'General')}</div>
         <div class="tile-subtitle" style="font-size:11px;opacity:0.7">started ${esc(s.created_ago)}</div>
         <div class="tile-top">
           ${isRunning ? `<span class="live-dot ${isWaiting ? 'waiting' : (isIdle ? 'idle' : '')}" style="flex-shrink:0"></span>` : ''}
