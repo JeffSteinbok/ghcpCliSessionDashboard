@@ -159,7 +159,45 @@ def get_recent_activity(session):
     return ""
 
 
-def build_restart_command(session, yolo=False):
+def _extract_extra_args(cmdline):
+    """Extract extra CLI arguments from a copilot process command line.
+
+    Returns the portion of the command line after the copilot executable,
+    excluding --resume <sid> (which is always added separately).
+    """
+    if not cmdline:
+        return ""
+    # Find the copilot command portion (after the executable path)
+    # cmdline looks like: "node /path/to/copilot --resume sid --yolo --model X"
+    # or: "copilot --resume sid --yolo"
+    import shlex
+    try:
+        parts = shlex.split(cmdline, posix=(os.name != "nt"))
+    except ValueError:
+        parts = cmdline.split()
+
+    # Find the index of the copilot-like executable
+    start = 0
+    for i, p in enumerate(parts):
+        if "copilot" in p.lower():
+            start = i + 1
+            break
+
+    # Collect args, skipping --resume <sid>
+    extra = []
+    skip_next = False
+    for p in parts[start:]:
+        if skip_next:
+            skip_next = False
+            continue
+        if p == "--resume":
+            skip_next = True
+            continue
+        extra.append(p)
+    return " ".join(extra)
+
+
+def build_restart_command(session, yolo=False, cmdline=""):
     """Build a restart command for a session."""
     sid = session["id"]
     cwd = session.get("cwd") or ""
@@ -167,7 +205,11 @@ def build_restart_command(session, yolo=False):
     if cwd:
         parts.append(f'cd "{cwd}" &&')
     cmd = f"copilot --resume {sid}"
-    if yolo:
+    # Prefer extra args from the actual process command line
+    extra = _extract_extra_args(cmdline)
+    if extra:
+        cmd += " " + extra
+    elif yolo:
         cmd += " --yolo"
     parts.append(cmd)
     return " ".join(parts)
@@ -240,7 +282,8 @@ def api_sessions():
         s["group"] = get_group_name(s)
         s["recent_activity"] = get_recent_activity(s)
         had_yolo = proc["yolo"] if proc else False
-        s["restart_cmd"] = build_restart_command(s, yolo=had_yolo)
+        proc_cmdline = proc["cmdline"] if proc else ""
+        s["restart_cmd"] = build_restart_command(s, yolo=had_yolo, cmdline=proc_cmdline)
         # MCP: from running process if active, else from cached event data
         if proc:
             s["mcp_servers"] = proc.get("mcp_servers", [])

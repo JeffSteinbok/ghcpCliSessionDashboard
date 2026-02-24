@@ -9,6 +9,7 @@ let collapsedGroups = new Set();     // persist across re-renders
 let loadedDetails = {};              // cache detail HTML by session id
 let currentView = localStorage.getItem('dash-view') || 'tile';
 let starredSessions = new Set(JSON.parse(localStorage.getItem('dash-starred') || '[]'));
+let restartCmds = {};  // {session_id: restart_cmd} – avoids inline JS escaping issues
 
 // ===== DISCONNECT DETECTION =====
 let consecutiveFailures = 0;
@@ -382,6 +383,7 @@ function renderPanel(panelId, sessions, isActive) {
       <div class="group-body">`;
 
     for (const s of items) {
+      restartCmds[s.id] = s.restart_cmd;
       const isRunning = !!runningPids[s.id];
       const pinfo = isRunning ? (runningPids[s.id] || {}) : {};
       const isWaiting = isRunning && pinfo.state === 'waiting';
@@ -422,7 +424,7 @@ function renderPanel(panelId, sessions, isActive) {
       html += `
           <div class="restart-row">
             <span class="restart-cmd" title="${esc(s.restart_cmd)}">${esc(s.restart_cmd)}</span>
-            <button class="copy-btn" onclick="copyCmd(this, '${esc(s.restart_cmd)}')">&#x1F4CB; Copy</button>
+            <button class="copy-btn" onclick="event.stopPropagation();copyCmd(this, restartCmds['${s.id}'])">&#x1F4CB; Copy</button>
             <button class="copy-btn" onclick="event.stopPropagation();navigator.clipboard.writeText('${s.id}');this.textContent='✓';setTimeout(()=>this.textContent='🪪',1200)" title="Copy session ID">&#x1FA96;</button>
             ${isRunning ? `<button class="focus-btn" onclick="focusSession('${s.id}')">&#x1F4FA; Focus</button>` : ''}
           </div>
@@ -551,16 +553,15 @@ function buildToolCountsHtml(data) {
 
 function copyCmd(btn, cmd) {
   navigator.clipboard.writeText(cmd).then(() => {
-    btn.innerHTML = '&#x2705; Copied';
+    btn.textContent = '✓ Copied';
     btn.classList.add('copied');
-    setTimeout(() => { btn.innerHTML = '&#x1F4CB; Copy'; btn.classList.remove('copied'); }, 2000);
+    setTimeout(() => { btn.innerHTML = '&#x1F4CB; Copy'; btn.classList.remove('copied'); }, 1200);
   });
 }
 function copyTileCmd(btn, cmd) {
   navigator.clipboard.writeText(cmd).then(() => {
-    const prev = btn.innerHTML;
-    btn.innerHTML = '&#x2705;';
-    setTimeout(() => { btn.innerHTML = prev; }, 2000);
+    btn.textContent = '✓';
+    setTimeout(() => { btn.innerHTML = '&#x1F4CB;'; }, 1200);
   });
 }
 
@@ -594,6 +595,7 @@ function renderTilePanel(panelId, sessions, isActive) {
   // Sort: starred first
   const sortedSessions = [...sessions].sort((a, b) => (starredSessions.has(b.id) ? 1 : 0) - (starredSessions.has(a.id) ? 1 : 0));
   for (const s of sortedSessions) {
+    restartCmds[s.id] = s.restart_cmd;
     const isRunning = !!runningPids[s.id];
     const pinfo = isRunning ? (runningPids[s.id] || {}) : {};
     const state = isRunning ? (pinfo.state || 'unknown') : '';
@@ -619,7 +621,7 @@ function renderTilePanel(panelId, sessions, isActive) {
           <span class="badge badge-turns">&#x1F4AC; ${s.turn_count}</span>
           ${s.mcp_servers && s.mcp_servers.length ? s.mcp_servers.map(m => `<span class="badge badge-mcp">&#x1F50C; ${esc(m)}</span>`).join('') : ''}
           ${isRunning ? `<span class="badge badge-focus"onclick="event.stopPropagation(); focusSession('${s.id}')" title="Focus terminal window">&#x1F4FA;</span>` : ''}
-          <span class="badge badge-focus" onclick="event.stopPropagation(); copyTileCmd(this, '${esc(s.restart_cmd)}')" title="Copy resume command">&#x1F4CB;</span>
+          <span class="badge badge-focus" onclick="event.stopPropagation(); copyTileCmd(this, restartCmds['${s.id}'])" title="Copy resume command">&#x1F4CB;</span>
           <span class="badge badge-focus" onclick="event.stopPropagation();navigator.clipboard.writeText('${s.id}');this.textContent='✓';setTimeout(()=>this.textContent='🪪',1200)" title="Copy session ID">&#x1FA96;</span>
           <span class="badge badge-focus star-btn" onclick="event.stopPropagation();toggleStar('${s.id}')" title="Pin session">${starredSessions.has(s.id) ? '&#x2B50;' : '&#x2606;'}</span>
         </div>
