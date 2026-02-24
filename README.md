@@ -33,9 +33,6 @@ cd ghcpCliDashboard
 
 # Install in editable mode
 pip install -e .
-
-# Start the dashboard
-copilot-dashboard start
 ```
 
 ## Usage
