@@ -339,12 +339,14 @@ function renderStats(active, previous) {
   const activeTurns = active.reduce((a, s) => a + (s.turn_count || 0), 0);
   const activeToolCalls = active.reduce((a, s) => a + (s.tool_calls || 0), 0);
   const activeSubagents = active.reduce((a, s) => a + (s.subagent_runs || 0), 0);
+  const activeBgTasks = active.reduce((a, s) => a + ((runningPids[s.id] || {}).bg_tasks || 0), 0);
   const sub = '<div style="font-size:9px;opacity:0.6;margin-top:1px">IN RUNNING SESSIONS</div>';
   document.getElementById('stats-row').innerHTML = `
     <div class="stat-card"><div class="num">${active.length}</div><div class="label">Running Now</div></div>
     <div class="stat-card"><div class="num">${activeTurns.toLocaleString()}</div><div class="label">Conversations${sub}</div></div>
     <div class="stat-card"><div class="num">${activeToolCalls.toLocaleString()}</div><div class="label">Tool Calls${sub}</div></div>
     <div class="stat-card"><div class="num">${activeSubagents.toLocaleString()}</div><div class="label">Sub-agents${sub}</div></div>
+    ${activeBgTasks ? `<div class="stat-card"><div class="num">${activeBgTasks.toLocaleString()}</div><div class="label">Background Tasks${sub}</div></div>` : ''}
   `;
 }
 
