@@ -28,11 +28,14 @@ pip install ghcp-cli-dashboard
 
 ```bash
 # Clone the repo
-git clone https://github.com/JeffSteinbok/ghcpCliSessionDashboard.git
-cd ghcpCliSessionDashboard
+git clone https://github.com/JeffSteinbok/ghcpCliDashboard.git
+cd ghcpCliDashboard
+
+# Install in editable mode
+pip install -e .
 
 # Start the dashboard
-python -m src.session_dashboard start
+copilot-dashboard start
 ```
 
 ## Usage
