@@ -29,20 +29,16 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install ruff black isort
+          pip install ruff
           pip install -r requirements.txt
 
       - name: Run ruff linter
         run: |
           ruff check src/
 
-      - name: Run black formatter check
+      - name: Run ruff formatter check
         run: |
-          black --check src/
-
-      - name: Run isort import sorting check
-        run: |
-          isort --check-only src/
+          ruff format --check src/
 
   bump-version:
     runs-on: ubuntu-latest
