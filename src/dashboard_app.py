@@ -6,6 +6,8 @@ Serves a real-time dashboard of all Copilot CLI sessions with:
   - Restart commands with copy buttons
   - Click-to-focus terminal windows
   - Light/dark mode and palette selector
+
+Requires Python >= 3.12.
 """
 
 import sqlite3
@@ -13,6 +15,10 @@ import os
 import sys
 import argparse
 from datetime import datetime, timezone
+
+if sys.version_info < (3, 12):
+    sys.exit("Error: Python >= 3.12 is required. Found: " + sys.version)
+
 from flask import Flask, render_template_string, jsonify, request
 
 from .process_tracker import (get_running_sessions, focus_session_window,
@@ -1083,6 +1089,17 @@ def api_sessions():
         s["created_ago"] = time_ago(s["created_at"])
         proc = running.get(s["id"])
         is_running = proc is not None
+
+        # Add running status and state to session
+        s["is_running"] = is_running
+        if proc:
+            s["state"] = proc.get("state", "unknown")
+            s["waiting_context"] = proc.get("waiting_context", "")
+            s["bg_tasks"] = proc.get("bg_tasks", 0)
+        else:
+            s["state"] = None
+            s["waiting_context"] = ""
+            s["bg_tasks"] = 0
 
         # Get event data (cached for inactive sessions, fresh for active)
         evt = get_session_event_data(s["id"], is_running=is_running)

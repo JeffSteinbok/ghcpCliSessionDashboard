@@ -1,6 +1,8 @@
 """
 Copilot Session Dashboard - CLI entry point.
 Provides install, start, stop, and status subcommands.
+
+Requires Python >= 3.12.
 """
 
 import argparse
@@ -8,10 +10,44 @@ import os
 import sys
 import subprocess
 import signal
+import shutil
+
+if sys.version_info < (3, 12):
+    sys.exit("Error: Python >= 3.12 is required. Found: " + sys.version)
 
 PKG_DIR = os.path.dirname(os.path.abspath(__file__))
 PID_FILE = os.path.join(PKG_DIR, ".dashboard.pid")
 DEFAULT_PORT = 5111
+
+
+def _find_python():
+    """Find a Python >= 3.12 interpreter, preferring the py launcher on Windows."""
+    # If the current interpreter is good enough, use it
+    if sys.version_info >= (3, 12):
+        return sys.executable
+
+    # Try the py launcher (Windows)
+    py = shutil.which("py")
+    if py:
+        try:
+            result = subprocess.run(
+                [py, "-3", "--version"], capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0:
+                ver = result.stdout.strip().split()[-1]  # "3.14.3"
+                major, minor = (int(x) for x in ver.split(".")[:2])
+                if major >= 3 and minor >= 12:
+                    return f"{py} -3"
+        except Exception:
+            pass
+
+    # Fallback: search PATH for python3.x
+    for minor in range(14, 11, -1):
+        candidate = shutil.which(f"python3.{minor}")
+        if candidate:
+            return candidate
+
+    return sys.executable
 
 
 def cmd_install(args):
@@ -45,8 +81,9 @@ def cmd_start(args):
     app_path = os.path.join(PKG_DIR, "dashboard_app.py")
 
     if args.background:
+        python = _find_python()
         proc = subprocess.Popen(
-            [sys.executable, app_path, "--port", str(args.port)],
+            [python, app_path, "--port", str(args.port)],
             creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,

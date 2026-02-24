@@ -72,11 +72,11 @@ Click the 🔕 button in the header to enable browser notifications. You'll get 
 - Toggle between views with the buttons next to the Active/Previous tabs
 
 ### Session Monitoring
-- **Active vs Previous** — sessions with a running `copilot` process appear in the Active tab
+- **Active vs Previous** — sessions with a running `copilot.exe` process appear in the Active tab
 - **Waiting context** — when a session is waiting, shows *what* it's asking (e.g. the `ask_user` question and choices)
 - **Background tasks** — shows count of running subagents per session
 - **YOLO mode indicator** — shows 🔥 YOLO badge for sessions running with `--yolo`
-- **MCP servers** — displays connected MCP servers for both active and past sessions
+- **MCP servers** — displays connected MCP servers (e.g. bluebird, icm, github) for both active and past sessions
 - **Project grouping** — sessions are auto-categorized by repo, working directory, or content analysis
 
 ### Actions
@@ -94,17 +94,17 @@ Click the 🔕 button in the header to enable browser notifications. You'll get 
 | Package | Purpose |
 |---------|---------|
 | `flask` | Web server |
-| `pywin32` | Window focus and process detection (Windows-only, optional) |
+| `pywin32` | Window focus and process detection (Windows-only) |
 
-Run `session-dashboard install` to install dependencies.
+Run `session-dashboard install` to install both.
 
 ## Architecture
 
 | Module | Role |
 |--------|------|
-| `src/session_dashboard.py` | CLI entry point with `install`, `start`, `stop`, `status` subcommands |
-| `src/dashboard_app.py` | Flask app with REST API and embedded HTML/JS/CSS single-page dashboard |
-| `src/process_tracker.py` | Detects running copilot processes, reads `events.jsonl` for session state, extracts MCP servers, and uses Win32 APIs for window focus |
+| `session_dashboard.py` | CLI entry point with `install`, `start`, `stop`, `status` subcommands |
+| `dashboard_app.py` | Flask app with REST API and embedded HTML/JS/CSS single-page dashboard |
+| `process_tracker.py` | Detects running copilot processes, reads `events.jsonl` for session state, extracts MCP servers, and uses Win32 APIs for window focus |
 
 ## Data Sources
 
@@ -112,7 +112,7 @@ Run `session-dashboard install` to install dependencies.
 |--------|-----------------|
 | `~/.copilot/session-store.db` | Session metadata, turns, checkpoints, files, refs (read-only SQLite) |
 | `~/.copilot/session-state/<id>/events.jsonl` | Live session state, MCP config, recent tool output |
-| Running `copilot` processes | Active session detection, `--yolo` flag, MCP config file paths |
+| Running `copilot.exe` processes | Active session detection, `--yolo` flag, MCP config file paths |
 
 ## API Endpoints
 
@@ -123,7 +123,3 @@ Run `session-dashboard install` to install dependencies.
 | `/api/session/<id>` | GET | Session detail (checkpoints, refs, recent output, turns) |
 | `/api/processes` | GET | Currently running sessions with state, yolo, MCP |
 | `/api/focus/<id>` | POST | Bring session's terminal window to foreground |
-
-## License
-
-MIT — see [LICENSE](LICENSE) for details.

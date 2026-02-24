@@ -2,6 +2,8 @@
 Process and window tracker for Copilot CLI sessions.
 Uses pywin32 to map running sessions to terminal windows and focus them.
 Also detects session state (waiting/working), yolo mode, and MCP servers.
+
+Requires Python >= 3.12.
 """
 
 import os
@@ -12,6 +14,9 @@ import re
 import time
 import threading
 from datetime import datetime, timezone
+
+if sys.version_info < (3, 12):
+    sys.exit("Error: Python >= 3.12 is required. Found: " + sys.version)
 
 
 EVENTS_DIR = os.path.join(os.path.expanduser("~"), ".copilot", "session-state")
@@ -156,18 +161,66 @@ def _parse_mcp_servers(cmdline):
         return []
 
 
+def _parse_iso_timestamp(ts_str):
+    """Parse an ISO 8601 timestamp."""
+    return datetime.fromisoformat(ts_str)
+
+
+def _match_process_to_session(creation_date_str):
+    """Match a copilot.exe process (without --resume) to a session by creation time.
+
+    Compares the process creation time to session.start timestamps in events.jsonl
+    files. Returns the session ID with the closest match within a 10-second window.
+    """
+    try:
+        proc_time = _parse_iso_timestamp(creation_date_str)
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+    if not os.path.isdir(EVENTS_DIR):
+        return None
+
+    best_sid = None
+    best_delta = 10.0  # max 10 seconds tolerance
+
+    for sid in os.listdir(EVENTS_DIR):
+        events_file = os.path.join(EVENTS_DIR, sid, "events.jsonl")
+        if not os.path.exists(events_file):
+            continue
+        try:
+            with open(events_file, "r", encoding="utf-8", errors="replace") as f:
+                first_line = f.readline().strip()
+            if not first_line:
+                continue
+            evt = json.loads(first_line)
+            if evt.get("type") not in ("session.start", "session.resume"):
+                continue
+            ts = evt.get("timestamp", "")
+            if not ts:
+                continue
+            evt_time = _parse_iso_timestamp(ts)
+            delta = abs((proc_time - evt_time).total_seconds())
+            if delta < best_delta:
+                best_delta = delta
+                best_sid = sid
+        except Exception:
+            continue
+
+    return best_sid
+
+
 def _get_running_sessions_windows():
     """Find running copilot.exe processes on Windows via PowerShell/WMI."""
     ps_script = (
         "Get-CimInstance Win32_Process -Filter \"Name='copilot.exe'\" | "
-        "Where-Object { $_.CommandLine -like '*--resume*' } | "
         "ForEach-Object { "
         "  $cpid = $_.ProcessId; $ppid = $_.ParentProcessId; $cmd = $_.CommandLine; "
+        "  $ct = $_.CreationDate.ToUniversalTime().ToString('o'); "
         "  $parent = Get-CimInstance Win32_Process -Filter \"ProcessId=$ppid\" -EA SilentlyContinue; "
         "  $grandparent = if($parent){Get-CimInstance Win32_Process -Filter \"ProcessId=$($parent.ParentProcessId)\" -EA SilentlyContinue}; "
         "  $terminal = if($grandparent){Get-CimInstance Win32_Process -Filter \"ProcessId=$($grandparent.ParentProcessId)\" -EA SilentlyContinue}; "
         "  [PSCustomObject]@{ "
-        "    PID=$cpid; PPID=$ppid; Cmd=$cmd; "
+        "    PID=$cpid; PPID=$ppid; Cmd=$cmd; CreatedUTC=$ct; "
         "    ParentPID=if($parent){$parent.ProcessId}else{0}; "
         "    GrandparentPID=if($grandparent){$grandparent.ProcessId}else{0}; "
         "    TerminalPID=if($terminal){$terminal.ProcessId}else{0}; "
@@ -177,7 +230,7 @@ def _get_running_sessions_windows():
     )
     result = subprocess.run(
         ["powershell", "-NoProfile", "-Command", ps_script],
-        capture_output=True, text=True, timeout=10
+        capture_output=True, text=True, timeout=30
     )
     if result.returncode != 0 or not result.stdout.strip():
         return {}
@@ -187,55 +240,65 @@ def _get_running_sessions_windows():
         data = [data]
 
     sessions = {}
+    unmatched = []  # processes without --resume that need timestamp matching
+
     for proc in data:
         cmd = proc.get("Cmd", "")
+        proc_info = {
+            "pid": proc.get("PID"),
+            "parent_pid": proc.get("ParentPID"),
+            "grandparent_pid": proc.get("GrandparentPID"),
+            "terminal_pid": proc.get("TerminalPID"),
+            "terminal_name": proc.get("TerminalName", ""),
+            "cmdline": cmd,
+            "yolo": "--yolo" in cmd,
+            "mcp_servers": _parse_mcp_servers(cmd),
+        }
+
         if "--resume" in cmd:
             parts = cmd.split("--resume")
             if len(parts) > 1:
                 sid = parts[1].strip().split()[0].strip('"').strip("'")
-                sessions[sid] = {
-                    "pid": proc.get("PID"),
-                    "parent_pid": proc.get("ParentPID"),
-                    "grandparent_pid": proc.get("GrandparentPID"),
-                    "terminal_pid": proc.get("TerminalPID"),
-                    "terminal_name": proc.get("TerminalName", ""),
-                    "cmdline": cmd,
-                    "yolo": "--yolo" in cmd,
-                    "mcp_servers": _parse_mcp_servers(cmd),
-                }
+                sessions[sid] = proc_info
+        else:
+            # No --resume flag — try to match by creation time
+            unmatched.append((proc, proc_info))
+
+    # Match non-resume processes to sessions by creation timestamp
+    for proc, proc_info in unmatched:
+        created = proc.get("CreatedUTC", "")
+        sid = _match_process_to_session(created)
+        if sid and sid not in sessions:
+            sessions[sid] = proc_info
+
     return sessions
 
 
 def _get_running_sessions_unix():
     """Find running copilot processes on macOS/Linux via ps."""
     result = subprocess.run(
-        ["ps", "axo", "pid,ppid,command"],
+        ["ps", "axo", "pid,ppid,lstart,command"],
         capture_output=True, text=True, timeout=10
     )
     if result.returncode != 0 or not result.stdout.strip():
         return {}
 
     sessions = {}
+    unmatched = []
     for line in result.stdout.strip().split("\n")[1:]:
         line = line.strip()
-        if "--resume" not in line:
-            continue
         # Match copilot binary (copilot or copilot.exe, or node ... copilot)
         if "copilot" not in line.lower():
             continue
-        parts_line = line.split(None, 2)
-        if len(parts_line) < 3:
+        parts_line = line.split(None, 7)  # pid ppid lstart(5 fields) command
+        if len(parts_line) < 8:
             continue
         pid = int(parts_line[0])
         ppid = int(parts_line[1])
-        cmd = parts_line[2]
-        # Extract session ID from --resume <session_id>
-        resume_parts = cmd.split("--resume")
-        if len(resume_parts) < 2:
-            continue
-        sid = resume_parts[1].strip().split()[0].strip('"').strip("'")
-        if not sid:
-            continue
+        # lstart is like "Mon Feb 23 20:56:31 2026" (5 tokens)
+        lstart_str = " ".join(parts_line[2:7])
+        cmd = parts_line[7]
+
         # Walk up process tree to find terminal PID
         terminal_pid = 0
         terminal_name = ""
@@ -263,7 +326,8 @@ def _get_running_sessions_unix():
                 cur_ppid = int(pinfo[0])
         except Exception:
             pass
-        sessions[sid] = {
+
+        proc_info = {
             "pid": pid,
             "parent_pid": ppid,
             "grandparent_pid": 0,
@@ -273,6 +337,25 @@ def _get_running_sessions_unix():
             "yolo": "--yolo" in cmd,
             "mcp_servers": _parse_mcp_servers(cmd),
         }
+
+        if "--resume" in cmd:
+            # Extract session ID from --resume <session_id>
+            resume_parts = cmd.split("--resume")
+            if len(resume_parts) >= 2:
+                sid = resume_parts[1].strip().split()[0].strip('"').strip("'")
+                if sid:
+                    sessions[sid] = proc_info
+                    continue
+        # No --resume or couldn't extract session ID — try timestamp matching
+        try:
+            proc_time = datetime.strptime(lstart_str, "%a %b %d %H:%M:%S %Y")
+            proc_time = proc_time.replace(tzinfo=timezone.utc)
+            sid = _match_process_to_session(proc_time.isoformat())
+            if sid and sid not in sessions:
+                sessions[sid] = proc_info
+        except Exception:
+            pass
+
     return sessions
 
 
@@ -338,7 +421,7 @@ def _read_event_data(session_id):
                     continue
 
                 # Fast string pre-checks to avoid JSON parsing every line
-                if '"session.resume"' in line and not result["cwd"]:
+                if ('"session.start"' in line or '"session.resume"' in line) and not result["cwd"]:
                     try:
                         evt = json.loads(line)
                         ctx = evt.get("data", {}).get("context", {})
