@@ -352,6 +352,12 @@ def favicon():
     return send_from_directory(app.static_folder, "favicon.png", mimetype="image/png")
 
 
+@app.route("/api/server-info")
+def server_info():
+    """Return server metadata including PID."""
+    return jsonify({"pid": os.getpid(), "port": request.host.split(":")[-1]})
+
+
 @app.route("/manifest.json")
 def manifest():
     """PWA web app manifest — enables 'Install app' in Chrome/Edge."""

@@ -708,3 +708,8 @@ initView();
 updateNotifBtn();
 activeTimer = setInterval(fetchProcesses, 5000);
 previousTimer = setInterval(fetchSessions, 30000);
+
+fetch('/api/server-info').then(r => r.json()).then(d => {
+  const el = document.getElementById('server-pid');
+  if (el) el.textContent = `server PID ${d.pid}`;
+});
