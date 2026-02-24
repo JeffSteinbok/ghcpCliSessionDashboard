@@ -102,7 +102,17 @@ def get_group_name(session):
             p
             for p in parts
             if p.lower()
-            not in ("", "c:", "q:", "d:", "users", "home", "jeffstei", "jeffsteinbok", "src")
+            not in (
+                "",
+                "c:",
+                "q:",
+                "d:",
+                "users",
+                "home",
+                "jeffstei",
+                "jeffsteinbok",
+                "src",
+            )
         ]
         if meaningful:
             return meaningful[-1]
@@ -334,7 +344,11 @@ def manifest():
 def service_worker():
     """Minimal service worker required for PWA installability."""
     js = "self.addEventListener('fetch', () => {});"
-    return js, 200, {"Content-Type": "application/javascript", "Service-Worker-Allowed": "/"}
+    return (
+        js,
+        200,
+        {"Content-Type": "application/javascript", "Service-Worker-Allowed": "/"},
+    )
 
 
 # ---------------------------------------------------------------------------

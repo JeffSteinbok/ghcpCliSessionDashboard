@@ -31,7 +31,11 @@ def _find_python():
     if py:
         try:
             result = subprocess.run(
-                [py, "-3", "--version"], capture_output=True, text=True, timeout=5, check=False
+                [py, "-3", "--version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
             )
             if result.returncode == 0:
                 ver = result.stdout.strip().split()[-1]  # "3.14.3"
@@ -80,7 +84,9 @@ def cmd_start(args):
             old_pid = int(f.read().strip())
         try:
             os.kill(old_pid, 0)
-            print(f"Dashboard already running (PID {old_pid}) at http://localhost:{args.port}")
+            print(
+                f"Dashboard already running (PID {old_pid}) at http://localhost:{args.port}"
+            )
             return
         except OSError:
             os.remove(PID_FILE)
@@ -91,9 +97,23 @@ def cmd_start(args):
         pkg = __spec__.parent if __spec__ else None
         if pkg:
             repo_root = os.path.dirname(PKG_DIR)
-            cmd = [python, "-m", f"{pkg}.session_dashboard", "_serve", "--port", str(args.port)]
+            cmd = [
+                python,
+                "-m",
+                f"{pkg}.session_dashboard",
+                "_serve",
+                "--port",
+                str(args.port),
+            ]
         else:
-            cmd = [python, "-m", "src.session_dashboard", "_serve", "--port", str(args.port)]
+            cmd = [
+                python,
+                "-m",
+                "src.session_dashboard",
+                "_serve",
+                "--port",
+                str(args.port),
+            ]
             repo_root = os.path.dirname(PKG_DIR)
         proc = subprocess.Popen(  # pylint: disable=consider-using-with
             cmd,
@@ -132,7 +152,9 @@ def cmd_stop(_args):
 
     try:
         if sys.platform == "win32":
-            subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True, check=False)
+            subprocess.run(
+                ["taskkill", "/F", "/PID", str(pid)], capture_output=True, check=False
+            )
         else:
             os.kill(pid, signal.SIGTERM)
         print(f"Dashboard stopped (PID {pid}).")
@@ -172,7 +194,9 @@ def main():
 
     start_p = sub.add_parser("start", help="Start the dashboard web server")
     start_p.add_argument("--port", type=int, default=DEFAULT_PORT)
-    start_p.add_argument("--background", "-b", action="store_true", help="Run in background")
+    start_p.add_argument(
+        "--background", "-b", action="store_true", help="Run in background"
+    )
 
     sub.add_parser("stop", help="Stop the dashboard server")
     sub.add_parser("status", help="Check if the dashboard is running")
