@@ -575,7 +575,10 @@ async function focusSession(sid) {
 async function killSession(sid, pid) {
   if (!confirm(`Kill process PID ${pid}?`)) return;
   try {
-    const resp = await fetch('/api/kill/' + sid, { method: 'POST' });
+    const resp = await fetch('/api/kill/' + encodeURIComponent(sid), { method: 'POST' });
+    if (!resp.ok && resp.headers.get('content-type')?.indexOf('application/json') === -1) {
+      alert(`Failed to kill process: server returned ${resp.status}`); return;
+    }
     const data = await resp.json();
     if (!data.success) alert('Failed to kill process: ' + data.message);
   } catch(e) { alert('Error: ' + e.message); }
