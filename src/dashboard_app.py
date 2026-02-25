@@ -341,7 +341,7 @@ def api_processes():
     return jsonify(get_running_sessions())
 
 
-@app.route("/api/kill/<session_id>", methods=["POST"])
+@app.route("/api/kill/<path:session_id>", methods=["POST"])
 def api_kill(session_id):
     """Kill the process for a running session."""
     running = get_running_sessions()
