@@ -19,7 +19,7 @@
   <span id="waiting-badge" style="display:none" title="Sessions waiting for input"></span>
   <div class="header-credits">
     Created by <strong><a href="https://github.com/JeffSteinbok" target="_blank">Jeff Steinbok</a></strong>
-    &nbsp;&bull;&nbsp; v{{ version }}
+    &nbsp;&bull;&nbsp; <span id="version-display" title="v{{ version }}">v{{ version }}</span>
     &nbsp;&bull;&nbsp;
     <a onclick="document.getElementById('help-modal').classList.add('open')">What is this?</a>
   </div>
@@ -65,6 +65,19 @@
     </ul>
     <p><strong>Refresh rates:</strong> Active sessions refresh every 5 seconds. Previous sessions refresh every 30 seconds.</p>
     <button class="close-btn" onclick="document.getElementById('help-modal').classList.remove('open')">Got it</button>
+  </div>
+</div>
+
+<!-- ===== UPDATE MODAL ===== -->
+<div class="modal-overlay" id="update-modal" onclick="if(event.target===this)closeUpdateModal()">
+  <div class="modal">
+    <h2>&#x2B06;&#xFE0F; Update Available</h2>
+    <p id="update-modal-text"></p>
+    <p style="color:var(--text2);font-size:13px">The server will stop, upgrade the package via pip, and restart. The page will reload automatically once it's back up.</p>
+    <div style="display:flex;gap:12px;justify-content:center;margin-top:16px">
+      <button class="copy-btn" onclick="closeUpdateModal()">Cancel</button>
+      <button class="copy-btn" style="background:var(--accent);color:#fff;border-color:var(--accent)" onclick="confirmUpdate()">Update Now</button>
+    </div>
   </div>
 </div>
 

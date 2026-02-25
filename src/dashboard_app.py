@@ -17,6 +17,8 @@ import signal
 import sqlite3
 import subprocess
 import sys
+import time
+import urllib.request
 from collections import Counter
 from datetime import UTC, datetime
 
@@ -36,6 +38,10 @@ from .process_tracker import (
 app = Flask(__name__)
 
 DB_PATH = os.path.join(os.path.expanduser("~"), ".copilot", "session-store.db")
+
+_PYPI_URL = "https://pypi.org/pypi/ghcp-cli-dashboard/json"
+_VERSION_CACHE_TTL = 1800  # 30 minutes
+_version_cache: dict = {"latest": None, "update_available": False, "checked_at": 0.0}
 
 
 def get_db():
@@ -469,6 +475,79 @@ def service_worker():
         200,
         {"Content-Type": "application/javascript", "Service-Worker-Allowed": "/"},
     )
+
+
+@app.route("/api/version")
+def api_version():
+    """Return current version and check PyPI for the latest release."""
+    now = time.monotonic()
+    if (
+        _version_cache["latest"] is not None
+        and now - _version_cache["checked_at"] < _VERSION_CACHE_TTL
+    ):
+        return jsonify(
+            {
+                "current": __version__,
+                "latest": _version_cache["latest"],
+                "update_available": _version_cache["update_available"],
+            }
+        )
+
+    try:
+        with urllib.request.urlopen(_PYPI_URL, timeout=5) as resp:
+            data = json.loads(resp.read())
+        latest = data["info"]["version"]
+        update_available = latest != __version__
+    except Exception:
+        latest = __version__
+        update_available = False
+
+    _version_cache.update(
+        {"latest": latest, "update_available": update_available, "checked_at": now}
+    )
+    return jsonify({"current": __version__, "latest": latest, "update_available": update_available})
+
+
+@app.route("/api/update", methods=["POST"])
+def api_update():
+    """Spawn a detached subprocess to pip-upgrade the package and restart the server."""
+    port = request.host.split(":")[-1]
+    server_pid = os.getpid()
+
+    # Inline script: sleep → pip upgrade → kill old server → start new server
+    script_lines = [
+        "import subprocess, sys, os, signal, time, shutil",
+        "time.sleep(2)",
+        "subprocess.run([sys.executable, '-m', 'pip', 'install', '--upgrade', 'ghcp-cli-dashboard'],"
+        " check=False, capture_output=True)",
+        f"pid = {server_pid}",
+        "try:",
+        "    if sys.platform == 'win32':",
+        "        subprocess.run(['taskkill', '/F', '/PID', str(pid)], capture_output=True, check=False)",
+        "    else:",
+        "        os.kill(pid, signal.SIGTERM)",
+        "except Exception:",
+        "    pass",
+        "time.sleep(1)",
+        "cmd = shutil.which('copilot-dashboard')",
+        "if cmd:",
+        "    kw = {'stdout': subprocess.DEVNULL, 'stderr': subprocess.DEVNULL}",
+        "    if sys.platform == 'win32':",
+        "        kw['creationflags'] = subprocess.CREATE_NO_WINDOW | 0x8",
+        "    else:",
+        "        kw['start_new_session'] = True",
+        f"    subprocess.Popen([cmd, 'start', '--background', '--port', '{port}'], **kw)",
+    ]
+    script = "\n".join(script_lines)
+
+    kwargs: dict = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+    if sys.platform == "win32":
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW | 0x00000008  # DETACHED_PROCESS
+    else:
+        kwargs["start_new_session"] = True
+
+    subprocess.Popen([sys.executable, "-c", script], **kwargs)  # pylint: disable=consider-using-with
+    return jsonify({"success": True, "message": "Update started. Server will restart shortly."})
 
 
 # ---------------------------------------------------------------------------
