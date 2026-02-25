@@ -171,6 +171,7 @@ def _extract_extra_args(cmdline):
     # cmdline looks like: "node /path/to/copilot --resume sid --yolo --model X"
     # or: "copilot --resume sid --yolo"
     import shlex
+
     try:
         parts = shlex.split(cmdline, posix=(os.name != "nt"))
     except ValueError:
