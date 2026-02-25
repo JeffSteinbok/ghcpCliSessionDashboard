@@ -1,0 +1,462 @@
+"""Tests for dashboard_app.py — pure helper functions and Flask routes."""
+
+import json
+import signal
+import sqlite3
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from src.dashboard_app import (
+    app,
+    build_restart_command,
+    get_group_name,
+    get_recent_activity,
+    time_ago,
+)
+
+
+# ---------------------------------------------------------------------------
+# time_ago
+# ---------------------------------------------------------------------------
+
+
+class TestTimeAgo:
+    def test_empty_string(self):
+        assert time_ago("") == "unknown"
+
+    def test_none(self):
+        assert time_ago(None) == "unknown"
+
+    def test_invalid_string(self):
+        result = time_ago("not-a-date")
+        assert result == "not-a-date"
+
+    def test_seconds_ago(self):
+        from datetime import UTC, datetime, timedelta
+
+        ts = (datetime.now(UTC) - timedelta(seconds=30)).isoformat()
+        assert time_ago(ts) == "30s ago"
+
+    def test_minutes_ago(self):
+        from datetime import UTC, datetime, timedelta
+
+        ts = (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
+        assert time_ago(ts) == "5m ago"
+
+    def test_hours_ago(self):
+        from datetime import UTC, datetime, timedelta
+
+        ts = (datetime.now(UTC) - timedelta(hours=3)).isoformat()
+        assert time_ago(ts) == "3h ago"
+
+    def test_days_ago(self):
+        from datetime import UTC, datetime, timedelta
+
+        ts = (datetime.now(UTC) - timedelta(days=2)).isoformat()
+        assert time_ago(ts) == "2d ago"
+
+    def test_z_suffix(self):
+        from datetime import UTC, datetime, timedelta
+
+        ts = (datetime.now(UTC) - timedelta(seconds=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        result = time_ago(ts)
+        assert result.endswith("s ago")
+
+    def test_exactly_one_minute(self):
+        from datetime import UTC, datetime, timedelta
+
+        ts = (datetime.now(UTC) - timedelta(seconds=60)).isoformat()
+        assert time_ago(ts) == "1m ago"
+
+    def test_exactly_one_hour(self):
+        from datetime import UTC, datetime, timedelta
+
+        ts = (datetime.now(UTC) - timedelta(seconds=3600)).isoformat()
+        assert time_ago(ts) == "1h ago"
+
+
+# ---------------------------------------------------------------------------
+# get_group_name
+# ---------------------------------------------------------------------------
+
+
+class TestGetGroupName:
+    def _session(self, cwd="", summary="", first_msg="", last_cp_overview=""):
+        return {
+            "cwd": cwd,
+            "summary": summary,
+            "first_msg": first_msg,
+            "last_cp_overview": last_cp_overview,
+        }
+
+    def test_src_path_returns_project_name(self):
+        s = self._session(cwd="/src/MyProject/feature")
+        assert get_group_name(s) == "MyProject"
+
+    def test_reviewstarclient_in_src_path(self):
+        s = self._session(cwd="/src/ReviewStarClientWeb/foo")
+        assert get_group_name(s) == "ReviewStarClient"
+
+    def test_repositorytools_in_src_path(self):
+        s = self._session(cwd="/src/RepositoryTools/bar")
+        assert get_group_name(s) == "OneDrive.RepositoryTools"
+
+    def test_reviewstarclient_in_context(self):
+        s = self._session(summary="Working on ReviewStarClient feature")
+        assert get_group_name(s) == "ReviewStarClient"
+
+    def test_repositorytools_in_context(self):
+        s = self._session(first_msg="Fix bug in OneDrive.RepositoryTools")
+        assert get_group_name(s) == "OneDrive.RepositoryTools"
+
+    def test_spocore_in_context(self):
+        s = self._session(summary="Working in spo.core module")
+        assert get_group_name(s) == "SPO.Core"
+
+    def test_dashboard_keyword(self):
+        s = self._session(summary="Improve session dashboard UI")
+        assert get_group_name(s) == "Session Dashboard"
+
+    def test_code_review_keyword(self):
+        s = self._session(summary="Implement code review feature")
+        assert get_group_name(s) == "PR Reviews"
+
+    def test_pipeline_keyword(self):
+        s = self._session(summary="Fix build pipeline issue")
+        assert get_group_name(s) == "CI/CD Pipelines"
+
+    def test_prune_keyword(self):
+        s = self._session(first_msg="Prune stale branches from remote")
+        assert get_group_name(s) == "Branch Cleanup"
+
+    def test_cwd_last_segment_fallback(self):
+        s = self._session(cwd="C:/Users/jeffs/GitHub/MyRepo")
+        assert get_group_name(s) == "MyRepo"
+
+    def test_no_cwd_no_keywords_returns_general(self):
+        s = self._session()
+        assert get_group_name(s) == "General"
+
+    def test_windows_backslash_cwd(self):
+        s = self._session(cwd="C:\\Users\\jeffs\\GitHub\\MyProject")
+        assert get_group_name(s) == "MyProject"
+
+    def test_spec_keyword(self):
+        s = self._session(summary="Write specification document")
+        assert get_group_name(s) == "Specifications"
+
+
+# ---------------------------------------------------------------------------
+# get_recent_activity
+# ---------------------------------------------------------------------------
+
+
+class TestGetRecentActivity:
+    def _session(self, last_cp_title="", last_cp_overview="", summary=""):
+        return {
+            "last_cp_title": last_cp_title,
+            "last_cp_overview": last_cp_overview,
+            "summary": summary,
+        }
+
+    def test_returns_checkpoint_title_when_different_from_summary(self):
+        s = self._session(last_cp_title="Fixed the bug", summary="Initial work")
+        assert get_recent_activity(s) == "Fixed the bug"
+
+    def test_skips_title_when_same_as_summary(self):
+        s = self._session(
+            last_cp_title="Same as summary",
+            summary="Same as summary",
+            last_cp_overview="Some detailed overview. More text here.",
+        )
+        result = get_recent_activity(s)
+        assert result == "Some detailed overview"
+
+    def test_returns_first_sentence_of_overview(self):
+        s = self._session(last_cp_overview="First sentence. Second sentence. Third.")
+        assert get_recent_activity(s) == "First sentence"
+
+    def test_truncates_long_overview(self):
+        long_text = "A" * 130
+        s = self._session(last_cp_overview=long_text)
+        result = get_recent_activity(s)
+        assert len(result) == 120
+        assert result.endswith("...")
+
+    def test_returns_empty_when_no_data(self):
+        s = self._session()
+        assert get_recent_activity(s) == ""
+
+    def test_none_values_handled(self):
+        s = {"last_cp_title": None, "last_cp_overview": None, "summary": None}
+        assert get_recent_activity(s) == ""
+
+
+# ---------------------------------------------------------------------------
+# build_restart_command
+# ---------------------------------------------------------------------------
+
+
+class TestBuildRestartCommand:
+    def _session(self, session_id, cwd=""):
+        return {"id": session_id, "cwd": cwd}
+
+    def test_without_cwd(self):
+        s = self._session("abc-123")
+        assert build_restart_command(s) == "copilot --resume abc-123"
+
+    def test_with_cwd(self):
+        s = self._session("abc-123", cwd="/home/user/project")
+        cmd = build_restart_command(s)
+        assert 'cd "/home/user/project"' in cmd
+        assert "copilot --resume abc-123" in cmd
+
+    def test_yolo_flag(self):
+        s = self._session("abc-123")
+        cmd = build_restart_command(s, yolo=True)
+        assert cmd == "copilot --resume abc-123 --yolo"
+
+    def test_yolo_with_cwd(self):
+        s = self._session("abc-123", cwd="/project")
+        cmd = build_restart_command(s, yolo=True)
+        assert "--yolo" in cmd
+        assert "copilot --resume abc-123" in cmd
+
+
+# ---------------------------------------------------------------------------
+# Flask routes
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def client():
+    app.config["TESTING"] = True
+    with app.test_client() as c:
+        yield c
+
+
+@pytest.fixture
+def populated_db(mock_db):
+    conn, db_path = mock_db
+    conn.execute(
+        "INSERT INTO sessions VALUES (?,?,?,?,?,?,?)",
+        ("sess-1", "/project", "owner/repo", "main", "Test session", "2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z"),
+    )
+    conn.execute(
+        "INSERT INTO turns VALUES (?,?,?,?)",
+        ("sess-1", 0, "Hello world", "Hi there"),
+    )
+    conn.execute(
+        "INSERT INTO checkpoints VALUES (?,?,?,?,?)",
+        ("sess-1", 1, "Checkpoint 1", "Overview text.", "Next steps."),
+    )
+    conn.execute(
+        "INSERT INTO session_files VALUES (?,?,?)",
+        ("sess-1", "src/foo.py", "edit"),
+    )
+    conn.execute(
+        "INSERT INTO session_refs VALUES (?,?,?)",
+        ("sess-1", "pr", "42"),
+    )
+    conn.commit()
+    return conn, db_path
+
+
+class TestIndexRoute:
+    def test_returns_200(self, client):
+        resp = client.get("/")
+        assert resp.status_code == 200
+
+
+class TestApiSessions:
+    def test_returns_session_list(self, client, populated_db):
+        _conn, db_path = populated_db
+        with (
+            patch("src.dashboard_app.DB_PATH", db_path),
+            patch("src.dashboard_app.get_running_sessions", return_value={}),
+            patch("src.dashboard_app.get_session_event_data", return_value={}),
+        ):
+            resp = client.get("/api/sessions")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert isinstance(data, list)
+        assert len(data) == 1
+        assert data[0]["id"] == "sess-1"
+
+    def test_returns_503_when_db_missing(self, client, tmp_path):
+        missing = str(tmp_path / "nonexistent.db")
+        with patch("src.dashboard_app.DB_PATH", missing):
+            resp = client.get("/api/sessions")
+        assert resp.status_code == 503
+        assert "error" in resp.get_json()
+
+    def test_running_session_enriched(self, client, populated_db):
+        _conn, db_path = populated_db
+        running = {
+            "sess-1": {
+                "pid": 1234,
+                "state": "working",
+                "waiting_context": "",
+                "bg_tasks": 0,
+                "yolo": True,
+                "mcp_servers": ["github"],
+            }
+        }
+        with (
+            patch("src.dashboard_app.DB_PATH", db_path),
+            patch("src.dashboard_app.get_running_sessions", return_value=running),
+            patch("src.dashboard_app.get_session_event_data", return_value={}),
+        ):
+            resp = client.get("/api/sessions")
+        data = resp.get_json()
+        session = data[0]
+        assert session["is_running"] is True
+        assert session["state"] == "working"
+        assert "--yolo" in session["restart_cmd"]
+
+
+class TestApiSessionDetail:
+    def test_returns_detail(self, client, populated_db):
+        _conn, db_path = populated_db
+        with (
+            patch("src.dashboard_app.DB_PATH", db_path),
+            patch("src.dashboard_app.get_recent_output", return_value=["line1"]),
+        ):
+            resp = client.get("/api/session/sess-1")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "checkpoints" in data
+        assert "refs" in data
+        assert "turns" in data
+        assert "files" in data
+        assert data["files"] == ["src/foo.py"]
+
+    def test_returns_503_when_db_missing(self, client, tmp_path):
+        missing = str(tmp_path / "nonexistent.db")
+        with patch("src.dashboard_app.DB_PATH", missing):
+            resp = client.get("/api/session/sess-1")
+        assert resp.status_code == 503
+
+
+class TestApiFiles:
+    def test_returns_file_list(self, client, populated_db):
+        _conn, db_path = populated_db
+        with patch("src.dashboard_app.DB_PATH", db_path):
+            resp = client.get("/api/files")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert any(f["file_path"] == "src/foo.py" for f in data)
+
+    def test_returns_503_when_db_missing(self, client, tmp_path):
+        missing = str(tmp_path / "nonexistent.db")
+        with patch("src.dashboard_app.DB_PATH", missing):
+            resp = client.get("/api/files")
+        assert resp.status_code == 503
+
+
+class TestApiProcesses:
+    def test_returns_dict(self, client):
+        fake = {"sess-1": {"pid": 999, "state": "working"}}
+        with patch("src.dashboard_app.get_running_sessions", return_value=fake):
+            resp = client.get("/api/processes")
+        assert resp.status_code == 200
+        assert resp.get_json() == fake
+
+
+class TestApiFocus:
+    def test_success(self, client):
+        with patch("src.dashboard_app.focus_session_window", return_value=(True, "Focused: Terminal")):
+            resp = client.post("/api/focus/sess-1")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["success"] is True
+        assert "Focused" in data["message"]
+
+    def test_failure(self, client):
+        with patch("src.dashboard_app.focus_session_window", return_value=(False, "Not found")):
+            resp = client.post("/api/focus/sess-1")
+        data = resp.get_json()
+        assert data["success"] is False
+
+
+class TestApiKill:
+    def test_session_not_found(self, client):
+        with patch("src.dashboard_app.get_running_sessions", return_value={}):
+            resp = client.post("/api/kill/sess-1")
+        assert resp.status_code == 404
+        assert resp.get_json()["success"] is False
+
+    def test_no_pid_available(self, client):
+        running = {"sess-1": {"state": "working"}}
+        with patch("src.dashboard_app.get_running_sessions", return_value=running):
+            resp = client.post("/api/kill/sess-1")
+        assert resp.status_code == 404
+        assert resp.get_json()["success"] is False
+
+    def test_success_unix(self, client):
+        running = {"sess-1": {"pid": 1234, "state": "working"}}
+        with (
+            patch("src.dashboard_app.get_running_sessions", return_value=running),
+            patch("src.dashboard_app.sys.platform", "linux"),
+            patch("src.dashboard_app.os.kill") as mock_kill,
+        ):
+            resp = client.post("/api/kill/sess-1")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["success"] is True
+        assert "1234" in data["message"]
+        mock_kill.assert_called_once_with(1234, signal.SIGTERM)
+
+    def test_success_windows(self, client):
+        running = {"sess-1": {"pid": 5678, "state": "working"}}
+        with (
+            patch("src.dashboard_app.get_running_sessions", return_value=running),
+            patch("src.dashboard_app.sys.platform", "win32"),
+            patch("src.dashboard_app.subprocess.run") as mock_run,
+        ):
+            resp = client.post("/api/kill/sess-1")
+        assert resp.status_code == 200
+        assert resp.get_json()["success"] is True
+        mock_run.assert_called_once()
+        args = mock_run.call_args[0][0]
+        assert "taskkill" in args
+        assert str(5678) in args
+
+    def test_kill_failure(self, client):
+        running = {"sess-1": {"pid": 1234, "state": "working"}}
+        with (
+            patch("src.dashboard_app.get_running_sessions", return_value=running),
+            patch("src.dashboard_app.sys.platform", "linux"),
+            patch("src.dashboard_app.os.kill", side_effect=OSError("no such process")),
+        ):
+            resp = client.post("/api/kill/sess-1")
+        assert resp.status_code == 500
+        assert resp.get_json()["success"] is False
+
+
+class TestApiServerInfo:
+    def test_returns_pid_and_port(self, client):
+        resp = client.get("/api/server-info")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "pid" in data
+        assert "port" in data
+
+
+class TestManifest:
+    def test_returns_pwa_manifest(self, client):
+        resp = client.get("/manifest.json")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["name"] == "Copilot Dashboard"
+        assert "icons" in data
+        assert data["display"] == "standalone"
+
+
+class TestServiceWorker:
+    def test_returns_js(self, client):
+        resp = client.get("/sw.js")
+        assert resp.status_code == 200
+        assert resp.content_type == "application/javascript"
+        assert b"fetch" in resp.data
