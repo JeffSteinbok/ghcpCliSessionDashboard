@@ -712,6 +712,54 @@ function closeDetailModal() {
 // ===== SEARCH =====
 document.getElementById('search').addEventListener('input', () => render());
 
+// ===== VERSION CHECK =====
+async function checkVersion() {
+  try {
+    const resp = await fetch('/api/version');
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const el = document.getElementById('version-display');
+    if (!el) return;
+    if (data.update_available) {
+      el.textContent = `v${data.current} ⬆`;
+      el.title = `v${data.latest} available — click to update`;
+      el.classList.add('version-update-available');
+      el.onclick = () => showUpdateModal(data.current, data.latest);
+    } else {
+      el.textContent = `v${data.current}`;
+      el.title = 'Up to date';
+      el.classList.remove('version-update-available');
+      el.onclick = null;
+    }
+  } catch (e) { /* ignore version check failures */ }
+}
+
+function showUpdateModal(current, latest) {
+  const text = document.getElementById('update-modal-text');
+  if (text) text.textContent = `New version available: v${current} → v${latest}`;
+  document.getElementById('update-modal').classList.add('open');
+}
+
+function closeUpdateModal() {
+  document.getElementById('update-modal').classList.remove('open');
+}
+
+async function confirmUpdate() {
+  closeUpdateModal();
+  const el = document.getElementById('version-display');
+  if (el) { el.textContent = 'Updating\u2026'; el.classList.remove('version-update-available'); el.onclick = null; }
+  try { await fetch('/api/update', { method: 'POST' }); } catch (e) { /* server may die mid-response */ }
+  // Poll until the (new) server responds, then reload
+  const start = Date.now();
+  const poll = setInterval(async () => {
+    if (Date.now() - start > 90000) { clearInterval(poll); if (el) el.textContent = 'Update timed out'; return; }
+    try {
+      const r = await fetch('/api/server-info');
+      if (r.ok) { clearInterval(poll); location.reload(); }
+    } catch (e) { /* not up yet */ }
+  }, 2000);
+}
+
 // ===== POLLING =====
 // Active sessions: refresh process list every 5s
 // Full session list: refresh every 30s
@@ -723,6 +771,8 @@ initView();
 updateNotifBtn();
 activeTimer = setInterval(fetchProcesses, 5000);
 previousTimer = setInterval(fetchSessions, 30000);
+checkVersion();
+setInterval(checkVersion, 30 * 60 * 1000);
 
 fetch('/api/server-info').then(r => r.json()).then(d => {
   const el = document.getElementById('server-pid');

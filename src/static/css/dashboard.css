@@ -486,3 +486,15 @@
   .branch-badge { display:inline-block; background:var(--surface2); border:1px solid var(--border); border-radius:4px; padding:1px 7px; font-size:11px; font-family:monospace; color:var(--text2); margin-left:4px; }
   .cp-item { border-left: 2px solid var(--border); padding: 4px 0 4px 10px; margin: 4px 0; cursor:pointer; }
   .cp-item:hover { border-color: var(--accent); }
+
+  /* ===== VERSION UPDATE BADGE ===== */
+  #version-display.version-update-available {
+    color: var(--yellow);
+    cursor: pointer;
+    border-bottom: 1px dashed var(--yellow);
+    animation: versionPulse 2s ease-in-out infinite;
+  }
+  @keyframes versionPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.65; }
+  }
