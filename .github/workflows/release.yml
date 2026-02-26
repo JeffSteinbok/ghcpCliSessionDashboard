@@ -12,6 +12,19 @@ on:
           - minor
           - major
         default: 'patch'
+      prerelease:
+        description: 'Pre-release label (leave empty for stable release)'
+        required: false
+        type: choice
+        options:
+          - ''
+          - 'a1'
+          - 'b1'
+          - 'b2'
+          - 'b3'
+          - 'rc1'
+          - 'rc2'
+        default: ''
 
 # Runs full CI checks before bumping version to ensure a clean build.
 
@@ -30,6 +43,7 @@ jobs:
     needs: [lint, test, frontend]
     outputs:
       new_version: ${{ steps.calc_version.outputs.new_version }}
+      is_prerelease: ${{ steps.calc_version.outputs.is_prerelease }}
     permissions:
       contents: write
 
@@ -74,12 +88,17 @@ jobs:
           esac
 
           NEW_VERSION="${major}.${minor}.${patch}"
+          PRERELEASE="${{ github.event.inputs.prerelease }}"
+          if [ -n "$PRERELEASE" ]; then
+            NEW_VERSION="${NEW_VERSION}${PRERELEASE}"
+          fi
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "is_prerelease=$( [ -n \"$PRERELEASE\" ] && echo true || echo false )" >> $GITHUB_OUTPUT
           echo "New version: $NEW_VERSION"
 
       - name: Update version in src/__version__.py
         run: |
-          sed -i 's/__version__\s*=\s*"[0-9]\+\.[0-9]\+\.[0-9]\+"/__version__ = "${{ steps.calc_version.outputs.new_version }}"/' src/__version__.py
+          sed -i 's/__version__\s*=\s*"[^"]*"/__version__ = "${{ steps.calc_version.outputs.new_version }}"/' src/__version__.py
           echo "Updated src/__version__.py with version ${{ steps.calc_version.outputs.new_version }}"
 
       - name: Install dependencies and export OpenAPI spec
@@ -121,12 +140,12 @@ jobs:
             ### Installation
 
             ```bash
-            pip install ghcp-cli-dashboard
+            pip install ghcp-cli-dashboard${{ needs.bump-version.outputs.is_prerelease == 'true' && ' --pre' || '' }}
             ```
 
             ### What's New
             - Automatic release created via GitHub Actions
           draft: true
-          prerelease: false
+          prerelease: ${{ needs.bump-version.outputs.is_prerelease == 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
