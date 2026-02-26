@@ -7,6 +7,7 @@
 import type { Session, ProcessMap } from "../types";
 import { STATE_LABELS, STATE_BADGE_CLASS } from "../utils";
 import SessionDetail from "./SessionDetail";
+import BgTaskPopover from "./BgTaskPopover";
 
 interface DetailModalProps {
   sessionId: string;
@@ -76,9 +77,11 @@ export default function DetailModal({
         {isRunning && pinfo!.bg_tasks > 0 && (
           <div className="detail-section">
             <h3>⚙️ Background Tasks</h3>
-            <div style={{ color: "var(--text2)", fontSize: 13, padding: "4px 0" }}>
-              {pinfo!.bg_tasks} background subagent task{pinfo!.bg_tasks > 1 ? "s" : ""} currently running
-            </div>
+            <BgTaskPopover
+              count={pinfo!.bg_tasks}
+              tasks={pinfo!.bg_task_list || []}
+              label={`${pinfo!.bg_tasks} background task${pinfo!.bg_tasks > 1 ? "s" : ""} currently running — hover for details`}
+            />
           </div>
         )}
 

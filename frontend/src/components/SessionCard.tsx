@@ -12,6 +12,7 @@ import { STATE_LABELS, STATE_BADGE_CLASS, listCardClass } from "../utils";
 import { useAppState, useAppDispatch } from "../state";
 import { focusSession, killSession } from "../api";
 import SessionDetail from "./SessionDetail";
+import BgTaskPopover from "./BgTaskPopover";
 
 interface SessionCardProps {
   session: Session;
@@ -114,9 +115,10 @@ export default function SessionCard({ session: s, processInfo }: SessionCardProp
               </span>
             )}
             {isRunning && processInfo!.bg_tasks > 0 && (
-              <span className="badge badge-bg" data-tip={`${processInfo!.bg_tasks} background subagent task${processInfo!.bg_tasks > 1 ? "s" : ""} running`}>
-                ⚙️ {processInfo!.bg_tasks} bg task{processInfo!.bg_tasks > 1 ? "s" : ""}
-              </span>
+              <BgTaskPopover
+                count={processInfo!.bg_tasks}
+                tasks={processInfo!.bg_task_list || []}
+              />
             )}
             {s.branch && (
               <span className="branch-badge" data-tip={`Branch: ${s.repository ? s.repository + "/" : ""}${s.branch}`}>

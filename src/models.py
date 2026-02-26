@@ -19,6 +19,7 @@ class ProcessInfo:
     state: str = "unknown"
     waiting_context: str = ""
     bg_tasks: int = 0
+    bg_task_list: list[BackgroundTask] = field(default_factory=list)
     mcp_servers: list[str] = field(default_factory=list)
 
 
@@ -35,12 +36,20 @@ class EventData:
     intent: str = ""
 
 
+class BackgroundTask(TypedDict):
+    """A single running background subagent task."""
+
+    agent_name: str
+    description: str
+
+
 class SessionState(TypedDict):
     """State of a running session."""
 
     state: str  # 'waiting' | 'idle' | 'working' | 'thinking' | 'unknown'
     waiting_context: str
     bg_tasks: int
+    bg_task_list: list[BackgroundTask]
 
 
 @dataclass

@@ -43,6 +43,13 @@ class SessionResponse(BaseModel):
 # ── Process map (/api/processes) ─────────────────────────────────────────────
 
 
+class BackgroundTaskResponse(BaseModel):
+    """A single running background subagent task."""
+
+    agent_name: str = ""
+    description: str = ""
+
+
 class ProcessResponse(BaseModel):
     """A running Copilot process as returned by GET /api/processes."""
 
@@ -55,6 +62,7 @@ class ProcessResponse(BaseModel):
     state: str = "unknown"
     waiting_context: str = ""
     bg_tasks: int = 0
+    bg_task_list: list[BackgroundTaskResponse] = Field(default_factory=list)
     mcp_servers: list[str] = Field(default_factory=list)
 
 

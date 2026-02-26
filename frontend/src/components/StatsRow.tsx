@@ -4,7 +4,8 @@
  * Displays: Running Now, Conversations, Tool Calls, Sub-agents, Background Tasks.
  */
 
-import type { Session, ProcessMap } from "../types";
+import type { Session, ProcessMap, BackgroundTask } from "../types";
+import BgTaskPopover from "./BgTaskPopover";
 
 interface StatsRowProps {
   active: Session[];
@@ -20,6 +21,9 @@ export default function StatsRow({ active, processes }: StatsRowProps) {
   const bgTasks = active.reduce(
     (a, s) => a + (processes[s.id]?.bg_tasks || 0),
     0,
+  );
+  const allBgTasks: BackgroundTask[] = active.flatMap(
+    (s) => processes[s.id]?.bg_task_list || [],
   );
 
   const sub = (
@@ -55,7 +59,16 @@ export default function StatsRow({ active, processes }: StatsRowProps) {
       <div className="stat-card">
         <div className="num">{bgTasks.toLocaleString()}</div>
         <div className="label">
-          Background Tasks{sub}
+          {bgTasks > 0 ? (
+            <BgTaskPopover
+              count={bgTasks}
+              tasks={allBgTasks}
+              label={`Background Tasks`}
+              className="badge-bg-stats"
+            />
+          ) : (
+            <>Background Tasks{sub}</>
+          )}
         </div>
       </div>
     </div>

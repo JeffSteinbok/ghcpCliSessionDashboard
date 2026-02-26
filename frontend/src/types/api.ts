@@ -5,6 +5,12 @@
  * in sync whenever the backend API changes.
  */
 
+/** A single running background subagent task. */
+export interface BackgroundTask {
+  agent_name: string;
+  description: string;
+}
+
 /** Matches Python ProcessInfo model (src/schemas.py). */
 export interface ProcessInfo {
   pid: number;
@@ -16,6 +22,7 @@ export interface ProcessInfo {
   state: "waiting" | "working" | "thinking" | "idle" | "unknown";
   waiting_context: string;
   bg_tasks: number;
+  bg_task_list: BackgroundTask[];
   mcp_servers: string[];
 }
 
