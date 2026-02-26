@@ -8,13 +8,18 @@ algorithm. Supports optional user-defined custom group mappings via
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
+import threading
 
 from .constants import DASHBOARD_CONFIG_PATH, DEFAULT_GROUP_NAME, KEYWORD_GROUPS, SKIP_DIRS
 
-# Loaded once on first call
+logger = logging.getLogger(__name__)
+
+# Loaded once on first call, protected by lock
 _custom_config: dict | None = None
+_config_lock = threading.Lock()
 
 
 def _load_config() -> dict:
@@ -32,16 +37,17 @@ def _load_config() -> dict:
     }
     """
     global _custom_config
-    if _custom_config is not None:
+    with _config_lock:
+        if _custom_config is not None:
+            return _custom_config
+        _custom_config = {}
+        if os.path.exists(DASHBOARD_CONFIG_PATH):
+            try:
+                with open(DASHBOARD_CONFIG_PATH, encoding="utf-8") as f:
+                    _custom_config = json.load(f)
+            except Exception as e:
+                logger.warning("Failed to load %s: %s", DASHBOARD_CONFIG_PATH, e)
         return _custom_config
-    _custom_config = {}
-    if os.path.exists(DASHBOARD_CONFIG_PATH):
-        try:
-            with open(DASHBOARD_CONFIG_PATH, encoding="utf-8") as f:
-                _custom_config = json.load(f)
-        except Exception:
-            pass
-    return _custom_config
 
 
 def get_group_name(session: dict) -> str:

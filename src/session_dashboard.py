@@ -25,9 +25,12 @@ BANNER = f"""\
 
 
 def _find_python():
-    """Find a suitable Python interpreter, preferring the py launcher on Windows."""
+    """Find a suitable Python interpreter, preferring the py launcher on Windows.
+
+    Returns a list of command parts (e.g. ["py", "-3"] or ["/usr/bin/python3.13"]).
+    """
     if sys.version_info >= MIN_PYTHON_VERSION:
-        return sys.executable
+        return [sys.executable]
 
     # Try the py launcher (Windows)
     py = shutil.which("py")
@@ -44,7 +47,7 @@ def _find_python():
                 ver = result.stdout.strip().split()[-1]  # "3.14.3"
                 major, minor = (int(x) for x in ver.split(".")[:2])
                 if major >= MIN_PYTHON_VERSION[0] and minor >= MIN_PYTHON_VERSION[1]:
-                    return f"{py} -3"
+                    return [py, "-3"]
         except Exception:
             pass
 
@@ -52,9 +55,20 @@ def _find_python():
     for minor in range(14, 10, -1):
         candidate = shutil.which(f"python3.{minor}")
         if candidate:
-            return candidate
+            return [candidate]
 
-    return sys.executable
+    return [sys.executable]
+
+
+def _read_pid_file() -> int | None:
+    """Read PID from the PID file, returning None if corrupt or missing."""
+    if not os.path.exists(PID_FILE):
+        return None
+    try:
+        with open(PID_FILE, encoding="utf-8") as f:
+            return int(f.read().strip())
+    except (ValueError, OSError):
+        return None
 
 
 def cmd_serve(args):
@@ -72,9 +86,8 @@ def cmd_serve(args):
 def cmd_start(args):
     """Start the dashboard server."""
     # Check if already running
-    if os.path.exists(PID_FILE):
-        with open(PID_FILE, encoding="utf-8") as f:
-            old_pid = int(f.read().strip())
+    old_pid = _read_pid_file()
+    if old_pid is not None:
         try:
             os.kill(old_pid, 0)
             print(f"Dashboard already running (PID {old_pid}) at http://localhost:{args.port}")
@@ -89,7 +102,7 @@ def cmd_start(args):
         if pkg:
             repo_root = os.path.dirname(PKG_DIR)
             cmd = [
-                python,
+                *python,
                 "-m",
                 f"{pkg}.session_dashboard",
                 "_serve",
@@ -98,7 +111,7 @@ def cmd_start(args):
             ]
         else:
             cmd = [
-                python,
+                *python,
                 "-m",
                 "src.session_dashboard",
                 "_serve",
@@ -138,12 +151,10 @@ def cmd_start(args):
 
 def cmd_stop(_args):
     """Stop the dashboard server."""
-    if not os.path.exists(PID_FILE):
+    pid = _read_pid_file()
+    if pid is None:
         print("Dashboard is not running (no PID file found).")
         return
-
-    with open(PID_FILE, encoding="utf-8") as f:
-        pid = int(f.read().strip())
 
     try:
         if sys.platform == "win32":
@@ -160,16 +171,14 @@ def cmd_stop(_args):
 
 def cmd_status(_args):
     """Check if the dashboard is running."""
-    if not os.path.exists(PID_FILE):
+    pid = _read_pid_file()
+    if pid is None:
         print("Dashboard is not running.")
         return
 
-    with open(PID_FILE, encoding="utf-8") as f:
-        pid = int(f.read().strip())
-
     try:
         os.kill(pid, 0)
-        print(f"Dashboard is running (PID {pid}) at http://localhost:{DEFAULT_PORT}")
+        print(f"Dashboard is running (PID {pid})")
     except OSError:
         print("Dashboard PID file exists but process is not running. Cleaning up.")
         os.remove(PID_FILE)
