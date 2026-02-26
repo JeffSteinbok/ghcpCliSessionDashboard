@@ -32,7 +32,7 @@ from .constants import (
     TERMINAL_NAMES,
     UNIX_TERMINAL_SUBSTRINGS,
 )
-from .models import EventData, ProcessInfo, RunningCache, SessionState
+from .models import BackgroundTask, EventData, ProcessInfo, RunningCache, SessionState
 
 EVENTS_DIR = SESSION_STATE_DIR
 
@@ -80,18 +80,39 @@ def _get_session_state(session_id) -> SessionState:
     """
     events = _read_recent_events(session_id, 30)
     if not events:
-        return SessionState(state="unknown", waiting_context="", bg_tasks=0)
+        return SessionState(state="unknown", waiting_context="", bg_tasks=0, bg_task_list=[])
 
-    # Count running subagents from full file (fast string search)
+    # Count running subagents from full file and extract task details
     events_file = os.path.join(EVENTS_DIR, session_id, "events.jsonl")
     bg = 0
+    bg_task_list: list[BackgroundTask] = []
     try:
         with open(events_file, encoding="utf-8", errors="replace") as f:
-            content = f.read()
-            bg = max(
-                0,
-                content.count('"subagent.started"') - content.count('"subagent.completed"'),
-            )
+            # Track started/completed subagents by toolCallId
+            started: dict[str, BackgroundTask] = {}
+            for line in f:
+                if '"subagent.started"' in line:
+                    try:
+                        evt = json.loads(line)
+                        data = evt.get("data", {})
+                        tcid = data.get("toolCallId", "")
+                        if tcid:
+                            started[tcid] = BackgroundTask(
+                                agent_name=data.get("agentDisplayName")
+                                or data.get("agentName", ""),
+                                description=data.get("agentDescription", ""),
+                            )
+                    except Exception:
+                        pass
+                elif '"subagent.completed"' in line:
+                    try:
+                        evt = json.loads(line)
+                        tcid = evt.get("data", {}).get("toolCallId", "")
+                        started.pop(tcid, None)
+                    except Exception:
+                        pass
+            bg = len(started)
+            bg_task_list = list(started.values())
     except Exception:
         pass
 
@@ -119,7 +140,9 @@ def _get_session_state(session_id) -> SessionState:
             ctx = question
             if choices:
                 ctx += " [" + " / ".join(choices[:4]) + "]"
-            return SessionState(state="waiting", waiting_context=ctx, bg_tasks=bg)
+            return SessionState(
+                state="waiting", waiting_context=ctx, bg_tasks=bg, bg_task_list=bg_task_list
+            )
         if tool != "report_intent":
             has_pending_work = True
 
@@ -136,10 +159,13 @@ def _get_session_state(session_id) -> SessionState:
                         state="waiting",
                         waiting_context="Session likely waiting for input",
                         bg_tasks=bg,
+                        bg_task_list=bg_task_list,
                     )
             except (ValueError, TypeError):
                 pass
-        return SessionState(state="working", waiting_context="", bg_tasks=bg)
+        return SessionState(
+            state="working", waiting_context="", bg_tasks=bg, bg_task_list=bg_task_list
+        )
 
     # Fall back to last event type
     last = events[-1]
@@ -151,27 +177,39 @@ def _get_session_state(session_id) -> SessionState:
             state="idle",
             waiting_context="Session idle \u2014 waiting for user message",
             bg_tasks=bg,
+            bg_task_list=bg_task_list,
         )
     if etype == "tool.execution_start":
         tool = data.get("toolName", "")
         if tool in ("ask_user", "ask_permission"):
             args = data.get("arguments", {})
             return SessionState(
-                state="waiting", waiting_context=args.get("question", ""), bg_tasks=bg
+                state="waiting",
+                waiting_context=args.get("question", ""),
+                bg_tasks=bg,
+                bg_task_list=bg_task_list,
             )
-        return SessionState(state="working", waiting_context="", bg_tasks=bg)
+        return SessionState(
+            state="working", waiting_context="", bg_tasks=bg, bg_task_list=bg_task_list
+        )
     if etype == "subagent.started":
-        return SessionState(state="working", waiting_context="", bg_tasks=bg)
+        return SessionState(
+            state="working", waiting_context="", bg_tasks=bg, bg_task_list=bg_task_list
+        )
     if etype in (
         "tool.execution_complete",
         "subagent.completed",
         "assistant.turn_start",
         "assistant.message",
     ):
-        return SessionState(state="thinking", waiting_context="", bg_tasks=bg)
+        return SessionState(
+            state="thinking", waiting_context="", bg_tasks=bg, bg_task_list=bg_task_list
+        )
     if etype == "user.message":
-        return SessionState(state="thinking", waiting_context="", bg_tasks=bg)
-    return SessionState(state="unknown", waiting_context="", bg_tasks=bg)
+        return SessionState(
+            state="thinking", waiting_context="", bg_tasks=bg, bg_task_list=bg_task_list
+        )
+    return SessionState(state="unknown", waiting_context="", bg_tasks=bg, bg_task_list=bg_task_list)
 
 
 def _parse_mcp_servers(cmdline):
@@ -429,6 +467,7 @@ def get_running_sessions() -> dict[str, ProcessInfo]:
                 info.state = ss["state"]
                 info.waiting_context = ss["waiting_context"]
                 info.bg_tasks = ss["bg_tasks"]
+                info.bg_task_list = ss["bg_task_list"]
             _running_cache.data = sessions
             _running_cache.time = time.monotonic()
             return sessions

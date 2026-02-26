@@ -107,6 +107,7 @@ describe("splitActivePrevious()", () => {
         state: "working",
         waiting_context: "",
         bg_tasks: 0,
+        bg_task_list: [],
         mcp_servers: [],
       },
     };

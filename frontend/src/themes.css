@@ -310,6 +310,28 @@ a:hover { text-decoration: underline; }
 .badge-yolo { background: rgba(248,81,73,0.15); color: var(--red); }
 .badge-mcp { background: rgba(188,140,255,0.15); color: var(--purple); }
 .badge-bg { background: rgba(210,153,34,0.15); color: var(--yellow); }
+
+/* ===== BG TASK POPOVER ===== */
+.bg-task-popover-wrap { position: relative; display: inline-flex; }
+.bg-task-popover {
+  position: absolute; left: 0; top: calc(100% + 6px);
+  background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px 14px; font-size: 13px; color: var(--text1);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.35); z-index: 200;
+  min-width: 520px; max-width: 800px; white-space: normal;
+}
+.bg-task-popover .pop-title { font-weight: 600; margin-bottom: 6px; color: var(--yellow); }
+.bg-task-list { list-style: none; margin: 0; padding: 0; }
+.bg-task-item {
+  padding: 4px 0; border-bottom: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.bg-task-item:last-child { border-bottom: none; }
+.bg-task-name { font-weight: 600; color: var(--text1); }
+.bg-task-desc { color: var(--text2); font-size: 11px; line-height: 1.4; }
+.bg-task-empty { color: var(--text2); }
+.badge-bg-stats { background: none !important; color: inherit !important; padding: 0 !important; font-size: inherit !important; cursor: default; }
+
 .badge-focus { cursor: pointer; background: rgba(88,166,255,0.15); color: var(--accent); }
 .badge-focus:hover { background: rgba(88,166,255,0.3); }
 .cwd-text {

@@ -7,6 +7,7 @@ import { COPY_FEEDBACK_MS } from "../constants";
 import { esc, STATE_LABELS, STATE_BADGE_CLASS, TILE_STATE_CLASS } from "../utils";
 import { useAppState, useAppDispatch } from "../state";
 import { focusSession, killSession } from "../api";
+import BgTaskPopover from "./BgTaskPopover";
 
 interface SessionTileProps {
   session: Session;
@@ -108,7 +109,11 @@ export default function SessionTile({ session: s, processInfo, onOpenDetail }: S
           </span>
         )}
         {isRunning && processInfo!.bg_tasks > 0 && (
-          <span className="badge badge-bg">⚙️ {processInfo!.bg_tasks} bg</span>
+          <BgTaskPopover
+            count={processInfo!.bg_tasks}
+            tasks={processInfo!.bg_task_list || []}
+            label={`⚙️ ${processInfo!.bg_tasks} bg`}
+          />
         )}
         <span className="badge badge-turns">💬 {s.turn_count}</span>
         {s.checkpoint_count > 0 && (
