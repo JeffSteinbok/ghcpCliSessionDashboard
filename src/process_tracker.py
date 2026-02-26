@@ -690,10 +690,12 @@ def _focus_session_window_windows(session_id, sessions: dict[str, ProcessInfo]):
         fg_hwnd = win32gui.GetForegroundWindow()
         fg_thread = win32process.GetWindowThreadProcessId(fg_hwnd)[0]
         my_thread = win32process.GetWindowThreadProcessId(target_hwnd)[0]
+        # windll is Windows-only; use getattr to satisfy mypy on Linux
+        user32 = getattr(ctypes, "windll").user32
         if fg_thread != my_thread:
-            ctypes.windll.user32.AttachThreadInput(fg_thread, my_thread, True)
+            user32.AttachThreadInput(fg_thread, my_thread, True)
             win32gui.SetForegroundWindow(target_hwnd)
-            ctypes.windll.user32.AttachThreadInput(fg_thread, my_thread, False)
+            user32.AttachThreadInput(fg_thread, my_thread, False)
         else:
             win32gui.SetForegroundWindow(target_hwnd)
         title = win32gui.GetWindowText(target_hwnd)
