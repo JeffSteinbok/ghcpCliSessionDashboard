@@ -390,10 +390,14 @@ def api_version():
             data = json.loads(resp.read())
 
         def _ver(v: str) -> tuple:
-            try:
-                return tuple(int(x) for x in v.split("."))
-            except ValueError:
-                return (0, 0, 0)
+            """Parse a PEP 440-ish version into a comparable tuple."""
+            m = re.match(r"(\d+(?:\.\d+)*)", v)
+            if not m:
+                return (0, 0, 0, 0)
+            nums = tuple(int(x) for x in m.group(1).split("."))
+            # Pre-release (a/b/rc) sorts before the final release
+            pre = 0 if re.search(r"(a|b|rc)\d*$", v) else 1
+            return (*nums, pre)
 
         def _is_prerelease(v: str) -> bool:
             return bool(re.search(r"(a|b|rc|dev)\d*$", v))
