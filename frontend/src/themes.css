@@ -1,0 +1,6 @@
+/* Global theme variables — imported once in main.tsx, not a CSS Module.
+   These are the same variables used by the existing dashboard.css. */
+
+:root {
+  color-scheme: dark;
+}
