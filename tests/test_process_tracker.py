@@ -1006,3 +1006,251 @@ class TestGetRunningSessions:
             result = get_running_sessions()
 
         assert "stale-sess" in result
+
+
+# ---------------------------------------------------------------------------
+# _focus_session_window_windows (lines 610-704)
+# ---------------------------------------------------------------------------
+
+
+class TestFocusSessionWindowWindows:
+    """Tests for _focus_session_window_windows()."""
+
+    def _make_sessions(self, **kwargs):
+        defaults = dict(
+            pid=100, parent_pid=200, terminal_pid=300, terminal_name="WindowsTerminal.exe"
+        )
+        defaults.update(kwargs)
+        return {"sess-1": ProcessInfo(**defaults)}
+
+    def test_import_error_returns_false(self):
+        from src.process_tracker import _focus_session_window_windows
+
+        sessions = self._make_sessions()
+        with patch.dict("sys.modules", {"win32gui": None, "win32process": None, "win32con": None}):
+            with patch("builtins.__import__", side_effect=ImportError("no win32gui")):
+                ok, msg = _focus_session_window_windows("sess-1", sessions)
+        assert ok is False
+        assert "pywin32" in msg.lower() or "not installed" in msg.lower()
+
+    def test_no_terminal_pid_returns_false(self):
+        from src.process_tracker import _focus_session_window_windows
+
+        sessions = self._make_sessions(terminal_pid=0)
+
+        mock_win32gui = MagicMock()
+        mock_win32process = MagicMock()
+        mock_win32con = MagicMock()
+        mock_subprocess = MagicMock()
+        mock_subprocess.return_value = MagicMock(
+            returncode=1, stdout=""
+        )
+
+        with (
+            patch.dict(
+                "sys.modules",
+                {"win32gui": mock_win32gui, "win32process": mock_win32process, "win32con": mock_win32con},
+            ),
+            patch("src.process_tracker.subprocess.run", mock_subprocess),
+        ):
+            ok, msg = _focus_session_window_windows("sess-1", sessions)
+        assert ok is False
+        assert "could not find terminal" in msg.lower()
+
+    def test_no_matching_window_returns_false(self):
+        from src.process_tracker import _focus_session_window_windows
+
+        sessions = self._make_sessions()
+
+        mock_win32gui = MagicMock()
+        mock_win32process = MagicMock()
+        mock_win32con = MagicMock()
+
+        # EnumWindows calls callback but no window matches
+        mock_win32gui.EnumWindows = MagicMock(side_effect=lambda cb, _: None)
+
+        mock_subprocess = MagicMock(return_value=MagicMock(returncode=1, stdout=""))
+
+        with (
+            patch.dict(
+                "sys.modules",
+                {"win32gui": mock_win32gui, "win32process": mock_win32process, "win32con": mock_win32con},
+            ),
+            patch("src.process_tracker.subprocess.run", mock_subprocess),
+        ):
+            ok, msg = _focus_session_window_windows("sess-1", sessions)
+        assert ok is False
+        assert "no visible window" in msg.lower()
+
+    def test_successful_focus(self):
+        from src.process_tracker import _focus_session_window_windows
+
+        sessions = self._make_sessions()
+
+        mock_win32gui = MagicMock()
+        mock_win32process = MagicMock()
+        mock_win32con = MagicMock()
+        mock_win32con.SW_SHOWMINIMIZED = 2
+
+        # Simulate EnumWindows finding a matching window
+        def fake_enum(cb, _):
+            mock_win32gui.IsWindowVisible.return_value = True
+            mock_win32process.GetWindowThreadProcessId.return_value = (1, 300)
+            mock_win32gui.GetWindowText.return_value = "Terminal Window"
+            cb(12345, None)
+
+        mock_win32gui.EnumWindows = fake_enum
+        mock_win32gui.GetWindowPlacement.return_value = (0, 1, 0, 0, 0)  # not minimized
+        mock_win32gui.GetForegroundWindow.return_value = 99999
+        mock_win32process.GetWindowThreadProcessId.side_effect = lambda hwnd: (
+            (10, 300) if hwnd == 12345 else (20, 999)
+        )
+        mock_win32gui.GetWindowText.return_value = "Terminal Window"
+
+        mock_subprocess = MagicMock(return_value=MagicMock(returncode=1, stdout=""))
+
+        with (
+            patch.dict(
+                "sys.modules",
+                {"win32gui": mock_win32gui, "win32process": mock_win32process, "win32con": mock_win32con},
+            ),
+            patch("src.process_tracker.subprocess.run", mock_subprocess),
+            patch("ctypes.windll", create=True) as mock_windll,
+        ):
+            mock_windll.user32 = MagicMock()
+            ok, msg = _focus_session_window_windows("sess-1", sessions)
+        assert ok is True
+        assert "focused" in msg.lower()
+
+
+# ---------------------------------------------------------------------------
+# _focus_session_window_macos (lines 707-742)
+# ---------------------------------------------------------------------------
+
+
+class TestFocusSessionWindowMacos:
+    """Tests for _focus_session_window_macos()."""
+
+    def _make_sessions(self, terminal_name="iTerm2", terminal_pid=300):
+        return {
+            "sess-1": ProcessInfo(
+                pid=100, parent_pid=200, terminal_pid=terminal_pid, terminal_name=terminal_name
+            )
+        }
+
+    def test_osascript_success(self):
+        from src.process_tracker import _focus_session_window_macos
+
+        sessions = self._make_sessions(terminal_name="iTerm2")
+        mock_result = MagicMock(returncode=0, stderr="")
+        with patch("src.process_tracker.subprocess.run", return_value=mock_result) as mock_run:
+            ok, msg = _focus_session_window_macos("sess-1", sessions)
+        assert ok is True
+        assert "iTerm" in msg
+        # Verify osascript was called
+        call_args = mock_run.call_args[0][0]
+        assert "osascript" in call_args
+
+    def test_osascript_failure(self):
+        from src.process_tracker import _focus_session_window_macos
+
+        sessions = self._make_sessions(terminal_name="iTerm2")
+        mock_result = MagicMock(returncode=1, stderr="script error")
+        with patch("src.process_tracker.subprocess.run", return_value=mock_result):
+            ok, msg = _focus_session_window_macos("sess-1", sessions)
+        assert ok is False
+        assert "osascript failed" in msg.lower()
+
+    def test_unknown_terminal_falls_back(self):
+        from src.process_tracker import _focus_session_window_macos
+
+        sessions = self._make_sessions(terminal_name="UnknownTerminal")
+        mock_result = MagicMock(returncode=0, stderr="")
+        with patch("src.process_tracker.subprocess.run", return_value=mock_result):
+            ok, msg = _focus_session_window_macos("sess-1", sessions)
+        # Should fall back to first MACOS_FALLBACK_TERMINALS entry ("Terminal")
+        assert ok is True
+        assert "Terminal" in msg
+
+    def test_subprocess_exception(self):
+        from src.process_tracker import _focus_session_window_macos
+
+        sessions = self._make_sessions(terminal_name="iTerm2")
+        with patch(
+            "src.process_tracker.subprocess.run", side_effect=Exception("timeout")
+        ):
+            ok, msg = _focus_session_window_macos("sess-1", sessions)
+        assert ok is False
+        assert "could not focus" in msg.lower()
+
+    def test_terminal_app_name_mapping(self):
+        from src.process_tracker import _focus_session_window_macos
+
+        # Test that "warp" maps to "Warp"
+        sessions = self._make_sessions(terminal_name="warp")
+        mock_result = MagicMock(returncode=0, stderr="")
+        with patch("src.process_tracker.subprocess.run", return_value=mock_result):
+            ok, msg = _focus_session_window_macos("sess-1", sessions)
+        assert ok is True
+        assert "Warp" in msg
+
+
+# ---------------------------------------------------------------------------
+# focus_session_window (lines 745-758)
+# ---------------------------------------------------------------------------
+
+
+class TestFocusSessionWindow:
+    """Tests for focus_session_window() dispatch."""
+
+    def test_session_not_found(self):
+        from src.process_tracker import focus_session_window
+
+        with patch("src.process_tracker.get_running_sessions", return_value={}):
+            ok, msg = focus_session_window("nonexistent")
+        assert ok is False
+        assert "not found" in msg.lower()
+
+    def test_dispatches_to_windows(self):
+        from src.process_tracker import focus_session_window
+
+        fake = {"sess-1": ProcessInfo(pid=1)}
+        with (
+            patch("src.process_tracker.get_running_sessions", return_value=fake),
+            patch("src.process_tracker.sys.platform", "win32"),
+            patch(
+                "src.process_tracker._focus_session_window_windows",
+                return_value=(True, "ok"),
+            ) as mock_win,
+        ):
+            ok, msg = focus_session_window("sess-1")
+        mock_win.assert_called_once()
+        assert ok is True
+
+    def test_dispatches_to_macos(self):
+        from src.process_tracker import focus_session_window
+
+        fake = {"sess-1": ProcessInfo(pid=1)}
+        with (
+            patch("src.process_tracker.get_running_sessions", return_value=fake),
+            patch("src.process_tracker.sys.platform", "darwin"),
+            patch(
+                "src.process_tracker._focus_session_window_macos",
+                return_value=(True, "focused"),
+            ) as mock_mac,
+        ):
+            ok, msg = focus_session_window("sess-1")
+        mock_mac.assert_called_once()
+        assert ok is True
+
+    def test_unsupported_platform(self):
+        from src.process_tracker import focus_session_window
+
+        fake = {"sess-1": ProcessInfo(pid=1)}
+        with (
+            patch("src.process_tracker.get_running_sessions", return_value=fake),
+            patch("src.process_tracker.sys.platform", "linux"),
+        ):
+            ok, msg = focus_session_window("sess-1")
+        assert ok is False
+        assert "not supported" in msg.lower()

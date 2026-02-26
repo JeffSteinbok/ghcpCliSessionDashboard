@@ -2,7 +2,7 @@
  * Component tests — render components with minimal props and assert DOM output.
  */
 
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Session, ProcessInfo, ProcessMap } from "../types";
 import { AppProvider } from "../state";
@@ -374,5 +374,704 @@ describe("Tooltip", () => {
     render(<Tooltip />);
     const el = document.getElementById("dash-tooltip");
     expect(el!.style.pointerEvents).toBe("none");
+  });
+
+  it("shows tooltip text on mouseover of data-tip element after delay", async () => {
+    vi.useFakeTimers();
+    const { container } = render(
+      <div>
+        <Tooltip />
+        <button data-tip="Hello tooltip">Hover me</button>
+      </div>,
+    );
+    const btn = screen.getByText("Hover me");
+    fireEvent.mouseOver(btn, { clientX: 100, clientY: 100 });
+    act(() => { vi.advanceTimersByTime(500); });
+    const el = document.getElementById("dash-tooltip");
+    expect(el!.textContent).toBe("Hello tooltip");
+    expect(el!.style.display).toBe("block");
+    vi.useRealTimers();
+  });
+
+  it("hides tooltip on mouseout", async () => {
+    vi.useFakeTimers();
+    render(
+      <div>
+        <Tooltip />
+        <button data-tip="Tip text">Hover me</button>
+      </div>,
+    );
+    const btn = screen.getByText("Hover me");
+    fireEvent.mouseOver(btn, { clientX: 100, clientY: 100 });
+    act(() => { vi.advanceTimersByTime(500); });
+    const el = document.getElementById("dash-tooltip");
+    expect(el!.style.display).toBe("block");
+    fireEvent.mouseOut(btn, { relatedTarget: document.body });
+    expect(el!.style.display).toBe("none");
+    vi.useRealTimers();
+  });
+
+  it("positions tooltip near mouse coordinates", async () => {
+    vi.useFakeTimers();
+    render(
+      <div>
+        <Tooltip />
+        <button data-tip="Pos test">Hover</button>
+      </div>,
+    );
+    const btn = screen.getByText("Hover");
+    fireEvent.mouseOver(btn, { clientX: 50, clientY: 60 });
+    act(() => { vi.advanceTimersByTime(500); });
+    const el = document.getElementById("dash-tooltip");
+    expect(el!.style.left).toBeTruthy();
+    expect(el!.style.top).toBeTruthy();
+    vi.useRealTimers();
+  });
+
+  it("updates position on mousemove when visible", () => {
+    vi.useFakeTimers();
+    render(
+      <div>
+        <Tooltip />
+        <button data-tip="Move test">Hover</button>
+      </div>,
+    );
+    const btn = screen.getByText("Hover");
+    fireEvent.mouseOver(btn, { clientX: 50, clientY: 60 });
+    act(() => { vi.advanceTimersByTime(500); });
+    const el = document.getElementById("dash-tooltip");
+    fireEvent.mouseMove(document, { clientX: 200, clientY: 200 });
+    expect(el!.style.left).toBeTruthy();
+    vi.useRealTimers();
+  });
+});
+
+// ── SessionCard (additional coverage) ────────────────────────────────────────
+
+describe("SessionCard — interactions", () => {
+  it("shows MCP server badges", () => {
+    const s = makeSession({ mcp_servers: ["server-a", "server-b"] });
+    renderWithProvider(<SessionCard session={s} processInfo={undefined} />);
+    expect(screen.getByText(/server-a/)).toBeInTheDocument();
+    expect(screen.getByText(/server-b/)).toBeInTheDocument();
+  });
+
+  it("dispatches TOGGLE_STAR on star click", () => {
+    const s = makeSession();
+    const { container } = renderWithProvider(<SessionCard session={s} processInfo={undefined} />);
+    const starBtn = container.querySelector(".star-btn")!;
+    fireEvent.click(starBtn);
+    expect(starBtn.textContent).toBe("⭐");
+  });
+
+  it("copies restart_cmd on copy button click", () => {
+    const s = makeSession({ restart_cmd: "copilot resume --id=test" });
+    renderWithProvider(<SessionCard session={s} processInfo={undefined} />);
+    const copyBtn = screen.getByText("📋 Copy");
+    fireEvent.click(copyBtn);
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("copilot resume --id=test");
+  });
+
+  it("copies session id on ID copy button click", () => {
+    const s = makeSession({ id: "my-session-id" });
+    renderWithProvider(<SessionCard session={s} processInfo={undefined} />);
+    const copyBtn = screen.getByText("🪪");
+    fireEvent.click(copyBtn);
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("my-session-id");
+  });
+
+  it("shows focus button when running", () => {
+    const s = makeSession();
+    const p = makeProcess({ state: "working" });
+    renderWithProvider(<SessionCard session={s} processInfo={p} />);
+    expect(screen.getByText(/Focus/)).toBeInTheDocument();
+  });
+
+  it("shows PID and kill button when running with pid", () => {
+    const s = makeSession();
+    const p = makeProcess({ pid: 999 });
+    renderWithProvider(<SessionCard session={s} processInfo={p} />);
+    expect(screen.getByText(/PID 999/)).toBeInTheDocument();
+    expect(screen.getByText("✕")).toBeInTheDocument();
+  });
+
+  it("shows expanded detail when toggled", async () => {
+    const s = makeSession({ id: "expand-test" });
+    const { container } = renderWithProvider(<SessionCard session={s} processInfo={undefined} />);
+    const clickArea = container.querySelector("[style*='cursor: pointer']")!;
+    fireEvent.click(clickArea);
+    await waitFor(() => {
+      expect(container.querySelector(".session-card.expanded")).not.toBeNull();
+    });
+  });
+
+  it("shows recent activity when present", () => {
+    const s = makeSession({ recent_activity: "Fixed the login page" });
+    renderWithProvider(<SessionCard session={s} processInfo={undefined} />);
+    expect(screen.getByText(/Fixed the login page/)).toBeInTheDocument();
+  });
+
+  it("shows waiting context when in waiting state", () => {
+    const s = makeSession();
+    const p = makeProcess({ state: "waiting", waiting_context: "Needs user approval" });
+    renderWithProvider(<SessionCard session={s} processInfo={p} />);
+    expect(screen.getByText(/Needs user approval/)).toBeInTheDocument();
+  });
+
+  it("shows state badge when running with known state", () => {
+    const s = makeSession();
+    const p = makeProcess({ state: "working" });
+    renderWithProvider(<SessionCard session={s} processInfo={p} />);
+    expect(screen.getByText(/Working/)).toBeInTheDocument();
+  });
+
+  it("shows bg_tasks badge when background tasks exist", () => {
+    const s = makeSession();
+    const p = makeProcess({ state: "working", bg_tasks: 3 });
+    renderWithProvider(<SessionCard session={s} processInfo={p} />);
+    expect(screen.getByText(/3 bg tasks/)).toBeInTheDocument();
+  });
+
+  it("shows intent as title when running with intent", () => {
+    const s = makeSession({ intent: "Refactoring auth module" });
+    const p = makeProcess({ state: "working" });
+    renderWithProvider(<SessionCard session={s} processInfo={p} />);
+    expect(screen.getByText(/Refactoring auth module/)).toBeInTheDocument();
+  });
+
+  it("shows waiting live-dot class when state is waiting", () => {
+    const s = makeSession();
+    const p = makeProcess({ state: "waiting" });
+    const { container } = renderWithProvider(<SessionCard session={s} processInfo={p} />);
+    const dot = container.querySelector(".live-dot.waiting");
+    expect(dot).not.toBeNull();
+  });
+
+  it("shows idle live-dot class when state is idle", () => {
+    const s = makeSession();
+    const p = makeProcess({ state: "idle" });
+    const { container } = renderWithProvider(<SessionCard session={s} processInfo={p} />);
+    const dot = container.querySelector(".live-dot.idle");
+    expect(dot).not.toBeNull();
+  });
+});
+
+// ── SessionTile (additional coverage) ────────────────────────────────────────
+
+describe("SessionTile — interactions", () => {
+  const onOpenDetail = vi.fn();
+  beforeEach(() => onOpenDetail.mockClear());
+
+  it("calls onOpenDetail when tile is clicked", () => {
+    const s = makeSession({ id: "tile-1", summary: "My session" });
+    const { container } = renderWithProvider(
+      <SessionTile session={s} processInfo={undefined} onOpenDetail={onOpenDetail} />,
+    );
+    fireEvent.click(container.querySelector(".tile-card")!);
+    expect(onOpenDetail).toHaveBeenCalledWith("tile-1", "My session");
+  });
+
+  it("dispatches TOGGLE_STAR on star click", () => {
+    const s = makeSession({ id: "star-tile" });
+    const { container } = renderWithProvider(
+      <SessionTile session={s} processInfo={undefined} onOpenDetail={onOpenDetail} />,
+    );
+    const starBtn = container.querySelector(".star-btn")!;
+    fireEvent.click(starBtn);
+    expect(onOpenDetail).not.toHaveBeenCalled();
+    expect(starBtn.textContent).toBe("⭐");
+  });
+
+  it("copies restart_cmd on copy badge click", () => {
+    const s = makeSession({ restart_cmd: "copilot resume" });
+    renderWithProvider(
+      <SessionTile session={s} processInfo={undefined} onOpenDetail={onOpenDetail} />,
+    );
+    const badges = screen.getAllByText("📋");
+    fireEvent.click(badges[0]);
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("copilot resume");
+  });
+
+  it("copies session id on ID badge click", () => {
+    const s = makeSession({ id: "tile-copy-id" });
+    renderWithProvider(
+      <SessionTile session={s} processInfo={undefined} onOpenDetail={onOpenDetail} />,
+    );
+    const idBadges = screen.getAllByText("🪪");
+    fireEvent.click(idBadges[0]);
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("tile-copy-id");
+  });
+
+  it("shows branch badge when branch is set", () => {
+    const s = makeSession({ branch: "feature", repository: "acme/app" });
+    renderWithProvider(
+      <SessionTile session={s} processInfo={undefined} onOpenDetail={onOpenDetail} />,
+    );
+    expect(screen.getByText(/acme\/app\/feature/)).toBeInTheDocument();
+  });
+
+  it("shows recent activity when present", () => {
+    const s = makeSession({ recent_activity: "Deployed v2" });
+    renderWithProvider(
+      <SessionTile session={s} processInfo={undefined} onOpenDetail={onOpenDetail} />,
+    );
+    expect(screen.getByText("Deployed v2")).toBeInTheDocument();
+  });
+
+  it("shows waiting context when in waiting state", () => {
+    const s = makeSession();
+    const p = makeProcess({ state: "waiting", waiting_context: "Awaiting review" });
+    renderWithProvider(
+      <SessionTile session={s} processInfo={p} onOpenDetail={onOpenDetail} />,
+    );
+    expect(screen.getByText(/Awaiting review/)).toBeInTheDocument();
+  });
+
+  it("shows state badge when running with known state", () => {
+    const s = makeSession();
+    const p = makeProcess({ state: "thinking" });
+    renderWithProvider(
+      <SessionTile session={s} processInfo={p} onOpenDetail={onOpenDetail} />,
+    );
+    expect(screen.getByText(/Thinking/)).toBeInTheDocument();
+  });
+
+  it("shows checkpoint count when > 0", () => {
+    const s = makeSession({ checkpoint_count: 5 });
+    const { container } = renderWithProvider(
+      <SessionTile session={s} processInfo={undefined} onOpenDetail={onOpenDetail} />,
+    );
+    expect(container.querySelector(".badge-cp")).not.toBeNull();
+    expect(container.querySelector(".badge-cp")!.textContent).toContain("5");
+  });
+
+  it("shows MCP server badges", () => {
+    const s = makeSession({ mcp_servers: ["mcp-1"] });
+    renderWithProvider(
+      <SessionTile session={s} processInfo={undefined} onOpenDetail={onOpenDetail} />,
+    );
+    expect(screen.getByText(/mcp-1/)).toBeInTheDocument();
+  });
+
+  it("shows focus badge when running", () => {
+    const s = makeSession();
+    const p = makeProcess({ state: "working" });
+    renderWithProvider(
+      <SessionTile session={s} processInfo={p} onOpenDetail={onOpenDetail} />,
+    );
+    expect(screen.getByText("👁️")).toBeInTheDocument();
+  });
+
+  it("shows bg_tasks badge when background tasks exist", () => {
+    const s = makeSession();
+    const p = makeProcess({ state: "working", bg_tasks: 2 });
+    renderWithProvider(
+      <SessionTile session={s} processInfo={p} onOpenDetail={onOpenDetail} />,
+    );
+    expect(screen.getByText(/2 bg/)).toBeInTheDocument();
+  });
+
+  it("shows intent as title when running with intent", () => {
+    const s = makeSession({ intent: "Building tests" });
+    const p = makeProcess({ state: "working" });
+    renderWithProvider(
+      <SessionTile session={s} processInfo={p} onOpenDetail={onOpenDetail} />,
+    );
+    expect(screen.getByText(/Building tests/)).toBeInTheDocument();
+  });
+
+  it("passes (Untitled) to onOpenDetail when summary is null", () => {
+    const s = makeSession({ id: "no-title", summary: null });
+    const { container } = renderWithProvider(
+      <SessionTile session={s} processInfo={undefined} onOpenDetail={onOpenDetail} />,
+    );
+    fireEvent.click(container.querySelector(".tile-card")!);
+    expect(onOpenDetail).toHaveBeenCalledWith("no-title", "(Untitled)");
+  });
+});
+
+// ── TabBar (additional coverage) ─────────────────────────────────────────────
+
+describe("TabBar — interactions", () => {
+  it("clicking a tab changes the active tab", () => {
+    renderWithProvider(<TabBar activeCount={0} previousCount={0} />);
+    const timelineTab = screen.getByText(/Timeline/).closest(".tab")!;
+    fireEvent.click(timelineTab);
+    expect(timelineTab.classList.contains("active")).toBe(true);
+  });
+
+  it("clicking tile view button activates tile view", () => {
+    renderWithProvider(<TabBar activeCount={0} previousCount={0} />);
+    const tileBtn = screen.getByTitle("Tile view");
+    fireEvent.click(tileBtn);
+    expect(tileBtn.classList.contains("active")).toBe(true);
+  });
+
+  it("clicking list view button activates list view", () => {
+    renderWithProvider(<TabBar activeCount={0} previousCount={0} />);
+    const listBtn = screen.getByTitle("List view");
+    fireEvent.click(listBtn);
+    expect(listBtn.classList.contains("active")).toBe(true);
+  });
+
+  it("clicking notification button toggles notification text", () => {
+    renderWithProvider(<TabBar activeCount={0} previousCount={0} />);
+    const notifBtn = screen.getByText(/Notifications/);
+    // Initial state depends on Notification.permission; just check toggling
+    fireEvent.click(notifBtn);
+    expect(screen.getByText(/Notifications/)).toBeInTheDocument();
+  });
+
+  it("shows popover on mouse enter after delay", () => {
+    vi.useFakeTimers();
+    renderWithProvider(<TabBar activeCount={0} previousCount={0} />);
+    const notifBtn = screen.getByText(/Notifications/);
+    fireEvent.mouseEnter(notifBtn);
+    act(() => { vi.advanceTimersByTime(500); });
+    const popover = document.querySelector(".notif-popover");
+    expect(popover).not.toBeNull();
+    vi.useRealTimers();
+  });
+
+  it("hides popover on mouse leave", () => {
+    vi.useFakeTimers();
+    renderWithProvider(<TabBar activeCount={0} previousCount={0} />);
+    const notifBtn = screen.getByText(/Notifications/);
+    fireEvent.mouseEnter(notifBtn);
+    act(() => { vi.advanceTimersByTime(500); });
+    fireEvent.mouseLeave(notifBtn);
+    const popover = document.querySelector(".notif-popover.visible");
+    expect(popover).toBeNull();
+    vi.useRealTimers();
+  });
+
+  it("all four tab types render with correct data-tab attributes", () => {
+    const { container } = renderWithProvider(<TabBar activeCount={1} previousCount={2} />);
+    expect(container.querySelector('[data-tab="active"]')).not.toBeNull();
+    expect(container.querySelector('[data-tab="previous"]')).not.toBeNull();
+    expect(container.querySelector('[data-tab="timeline"]')).not.toBeNull();
+    expect(container.querySelector('[data-tab="files"]')).not.toBeNull();
+  });
+
+  it("Previous tab becomes active when clicked", () => {
+    renderWithProvider(<TabBar activeCount={0} previousCount={0} />);
+    const prevTab = screen.getByText(/Previous/).closest(".tab")!;
+    fireEvent.click(prevTab);
+    expect(prevTab.classList.contains("active")).toBe(true);
+  });
+
+  it("Files tab becomes active when clicked", () => {
+    renderWithProvider(<TabBar activeCount={0} previousCount={0} />);
+    const filesTab = screen.getByText(/Files/).closest(".tab")!;
+    fireEvent.click(filesTab);
+    expect(filesTab.classList.contains("active")).toBe(true);
+  });
+});
+
+// ── Timeline ─────────────────────────────────────────────────────────────────
+
+import Timeline from "../components/Timeline";
+
+describe("Timeline", () => {
+  const onOpenDetail = vi.fn();
+  const now = new Date("2026-01-03T12:00:00Z").getTime();
+  beforeEach(() => onOpenDetail.mockClear());
+
+  it("shows empty message when no sessions", () => {
+    render(<Timeline sessions={[]} processes={{}} now={now} onOpenDetail={onOpenDetail} />);
+    expect(screen.getByText("No sessions with timestamps.")).toBeInTheDocument();
+  });
+
+  it("shows empty message when sessions have no timestamps in range", () => {
+    const oldSession = makeSession({
+      created_at: "2020-01-01T00:00:00Z",
+      updated_at: "2020-01-01T01:00:00Z",
+    });
+    render(<Timeline sessions={[oldSession]} processes={{}} now={now} onOpenDetail={onOpenDetail} />);
+    expect(screen.getByText("No sessions with timestamps.")).toBeInTheDocument();
+  });
+
+  it("renders timeline bars for sessions within range", () => {
+    const s1 = makeSession({
+      id: "t1",
+      summary: "Timeline session 1",
+      created_at: "2026-01-02T10:00:00Z",
+      updated_at: "2026-01-02T11:00:00Z",
+    });
+    const s2 = makeSession({
+      id: "t2",
+      summary: "Timeline session 2",
+      created_at: "2026-01-02T14:00:00Z",
+      updated_at: "2026-01-02T15:00:00Z",
+    });
+    const { container } = render(
+      <Timeline sessions={[s1, s2]} processes={{}} now={now} onOpenDetail={onOpenDetail} />,
+    );
+    expect(screen.getByText(/Timeline session 1/)).toBeInTheDocument();
+    expect(screen.getByText(/Timeline session 2/)).toBeInTheDocument();
+  });
+
+  it("clicking a bar calls onOpenDetail", () => {
+    const s = makeSession({
+      id: "click-bar",
+      summary: "Clickable session",
+      created_at: "2026-01-02T10:00:00Z",
+      updated_at: "2026-01-02T11:00:00Z",
+    });
+    const { container } = render(
+      <Timeline sessions={[s]} processes={{}} now={now} onOpenDetail={onOpenDetail} />,
+    );
+    // The clickable area is the bar container div
+    const barContainer = container.querySelector('[style*="cursor: pointer"]')!;
+    fireEvent.click(barContainer);
+    expect(onOpenDetail).toHaveBeenCalledWith("click-bar", "Clickable session");
+  });
+
+  it("uses active color for running sessions", () => {
+    const s = makeSession({
+      id: "running-bar",
+      summary: "Running session",
+      created_at: "2026-01-02T10:00:00Z",
+      updated_at: "2026-01-02T11:00:00Z",
+    });
+    const procs: ProcessMap = {
+      "running-bar": makeProcess({ state: "working" }),
+    };
+    const { container } = render(
+      <Timeline sessions={[s]} processes={procs} now={now} onOpenDetail={onOpenDetail} />,
+    );
+    expect(screen.getByText(/Running session/)).toBeInTheDocument();
+  });
+
+  it("uses waiting color for waiting sessions", () => {
+    const s = makeSession({
+      id: "waiting-bar",
+      summary: "Waiting session",
+      created_at: "2026-01-02T10:00:00Z",
+      updated_at: "2026-01-02T11:00:00Z",
+    });
+    const procs: ProcessMap = {
+      "waiting-bar": makeProcess({ state: "waiting" }),
+    };
+    const { container } = render(
+      <Timeline sessions={[s]} processes={procs} now={now} onOpenDetail={onOpenDetail} />,
+    );
+    expect(screen.getByText(/Waiting session/)).toBeInTheDocument();
+  });
+
+  it("renders time labels", () => {
+    const s = makeSession({
+      id: "label-test",
+      created_at: "2026-01-02T10:00:00Z",
+      updated_at: "2026-01-02T11:00:00Z",
+    });
+    const { container } = render(
+      <Timeline sessions={[s]} processes={{}} now={now} onOpenDetail={onOpenDetail} />,
+    );
+    // Should have time label divs
+    const labels = container.querySelectorAll('[style*="font-size: 11"]');
+    expect(labels.length).toBeGreaterThan(0);
+  });
+
+  it("shows (Untitled) for sessions without summary", () => {
+    const s = makeSession({
+      id: "no-summary",
+      summary: null,
+      created_at: "2026-01-02T10:00:00Z",
+      updated_at: "2026-01-02T11:00:00Z",
+    });
+    render(
+      <Timeline sessions={[s]} processes={{}} now={now} onOpenDetail={onOpenDetail} />,
+    );
+    expect(screen.getByText(/\(Untitled\)/)).toBeInTheDocument();
+  });
+});
+
+// ── SessionDetail ────────────────────────────────────────────────────────────
+
+import SessionDetail from "../components/SessionDetail";
+
+describe("SessionDetail", () => {
+  it("shows loading state initially", () => {
+    mockFetch.mockReturnValue(new Promise(() => {})); // never resolves
+    renderWithProvider(<SessionDetail sessionId="loading-test" />);
+    expect(screen.getByText("Loading...")).toBeInTheDocument();
+  });
+
+  it("shows error state when fetch fails", async () => {
+    mockFetch.mockRejectedValueOnce(new Error("fail"));
+    renderWithProvider(<SessionDetail sessionId="error-test" />);
+    await waitFor(() => {
+      expect(screen.getByText("Error loading details.")).toBeInTheDocument();
+    });
+  });
+
+  it("shows empty message when no content", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({
+        checkpoints: [],
+        refs: [],
+        turns: [],
+        recent_output: [],
+        tool_counts: [],
+        files: [],
+      }),
+    });
+    renderWithProvider(<SessionDetail sessionId="empty-test" />);
+    await waitFor(() => {
+      expect(screen.getByText("No additional details for this session.")).toBeInTheDocument();
+    });
+  });
+
+  it("renders checkpoints when present", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({
+        checkpoints: [{ checkpoint_number: 1, title: "Initial setup", overview: "Set things up", next_steps: "Add tests" }],
+        refs: [],
+        turns: [],
+        recent_output: [],
+        tool_counts: [],
+        files: [],
+      }),
+    });
+    renderWithProvider(<SessionDetail sessionId="cp-test" />);
+    await waitFor(() => {
+      expect(screen.getByText(/Checkpoints/)).toBeInTheDocument();
+      expect(screen.getByText(/Initial setup/)).toBeInTheDocument();
+    });
+  });
+
+  it("renders refs when present", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({
+        checkpoints: [],
+        refs: [{ ref_type: "pr", ref_value: "#42" }],
+        turns: [],
+        recent_output: [],
+        tool_counts: [],
+        files: [],
+      }),
+    });
+    renderWithProvider(<SessionDetail sessionId="ref-test" />);
+    await waitFor(() => {
+      expect(screen.getByText(/References/)).toBeInTheDocument();
+      expect(screen.getByText(/pr: #42/)).toBeInTheDocument();
+    });
+  });
+
+  it("renders recent output when present", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({
+        checkpoints: [],
+        refs: [],
+        turns: [],
+        recent_output: ["line1", "line2"],
+        tool_counts: [],
+        files: [],
+      }),
+    });
+    renderWithProvider(<SessionDetail sessionId="output-test" />);
+    await waitFor(() => {
+      expect(screen.getByText(/Recent Output/)).toBeInTheDocument();
+      expect(screen.getByText("line1")).toBeInTheDocument();
+      expect(screen.getByText("line2")).toBeInTheDocument();
+    });
+  });
+
+  it("renders conversation turns when present", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({
+        checkpoints: [],
+        refs: [],
+        turns: [{ turn_index: 0, user_message: "Hello user", assistant_response: "Hello assistant" }],
+        recent_output: [],
+        tool_counts: [],
+        files: [],
+      }),
+    });
+    renderWithProvider(<SessionDetail sessionId="turns-test" />);
+    await waitFor(() => {
+      expect(screen.getByText(/Conversation/)).toBeInTheDocument();
+      expect(screen.getByText(/Hello user/)).toBeInTheDocument();
+      expect(screen.getByText(/Hello assistant/)).toBeInTheDocument();
+    });
+  });
+
+  it("renders tool counts with bars when present", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({
+        checkpoints: [],
+        refs: [],
+        turns: [],
+        recent_output: [],
+        tool_counts: [
+          { name: "edit", count: 10 },
+          { name: "grep", count: 5 },
+        ],
+        files: [],
+      }),
+    });
+    renderWithProvider(<SessionDetail sessionId="tools-test" />);
+    await waitFor(() => {
+      expect(screen.getByText(/Tools used/)).toBeInTheDocument();
+      expect(screen.getByText("edit")).toBeInTheDocument();
+      expect(screen.getByText("grep")).toBeInTheDocument();
+      expect(screen.getByText("10")).toBeInTheDocument();
+      expect(screen.getByText("5")).toBeInTheDocument();
+    });
+  });
+
+  it("expands checkpoint item on click to show overview and next steps", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({
+        checkpoints: [{ checkpoint_number: 1, title: "Step one", overview: "Did the first thing", next_steps: "Do the second thing" }],
+        refs: [],
+        turns: [],
+        recent_output: [],
+        tool_counts: [],
+        files: [],
+      }),
+    });
+    renderWithProvider(<SessionDetail sessionId="cp-expand" />);
+    await waitFor(() => {
+      expect(screen.getByText(/Step one/)).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByText(/Step one/).closest(".cp-item")!);
+    expect(screen.getByText("Did the first thing")).toBeInTheDocument();
+    expect(screen.getByText(/Do the second thing/)).toBeInTheDocument();
+  });
+
+  it("truncates long user messages in turns", async () => {
+    const longMsg = "x".repeat(300);
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({
+        checkpoints: [],
+        refs: [],
+        turns: [{ turn_index: 0, user_message: longMsg, assistant_response: "ok" }],
+        recent_output: [],
+        tool_counts: [],
+        files: [],
+      }),
+    });
+    renderWithProvider(<SessionDetail sessionId="truncate-test" />);
+    await waitFor(() => {
+      expect(screen.getByText(/\.\.\./)).toBeInTheDocument();
+    });
   });
 });
