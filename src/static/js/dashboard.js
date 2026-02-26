@@ -11,6 +11,42 @@ let currentView = localStorage.getItem('dash-view') || 'tile';
 let starredSessions = new Set(JSON.parse(localStorage.getItem('dash-starred') || '[]'));
 let restartCmds = {};  // {session_id: restart_cmd} – avoids inline JS escaping issues
 
+// ===== CUSTOM TOOLTIP =====
+(function() {
+  let _tipTimer = null;
+  const _tip = () => document.getElementById('dash-tooltip');
+  document.addEventListener('mouseover', e => {
+    const el = e.target.closest('[data-tip]');
+    if (!el) return;
+    clearTimeout(_tipTimer);
+    _tipTimer = setTimeout(() => {
+      const t = _tip(); if (!t) return;
+      t.textContent = el.getAttribute('data-tip');
+      t.style.display = 'block';
+      _positionTip(t, e);
+    }, 400);
+  });
+  document.addEventListener('mousemove', e => {
+    const t = _tip();
+    if (t && t.style.display !== 'none') _positionTip(t, e);
+  });
+  document.addEventListener('mouseout', e => {
+    const el = e.target.closest('[data-tip]');
+    if (!el) return;
+    if (el.contains(e.relatedTarget)) return; // still within the same data-tip element
+    clearTimeout(_tipTimer);
+    const t = _tip(); if (t) t.style.display = 'none';
+  });
+  function _positionTip(t, e) {
+    const pad = 12, vw = window.innerWidth, vh = window.innerHeight;
+    let x = e.clientX + pad, y = e.clientY + pad;
+    if (x + t.offsetWidth > vw - pad) x = e.clientX - t.offsetWidth - pad;
+    if (y + t.offsetHeight > vh - pad) y = e.clientY - t.offsetHeight - pad;
+    t.style.left = x + 'px'; t.style.top = y + 'px';
+  }
+})();
+
+
 // ===== DISCONNECT DETECTION =====
 let consecutiveFailures = 0;
 const DISCONNECT_THRESHOLD = 2;  // show overlay after N consecutive failures
@@ -229,13 +265,18 @@ function notifPopoverContent() {
     + '<div class="pop-step">Click this button, then look for the</div>'
     + '<div class="pop-step"><span>&#x1F514; bell icon</span> in your address bar &rarr; click <span>Allow</span></div>';
 }
+let _notifHintTimer = null;
 function showNotifHint() {
-  const pop = document.getElementById('notif-popover');
-  if (!pop) return;
-  pop.innerHTML = notifPopoverContent();
-  pop.classList.add('visible');
+  clearTimeout(_notifHintTimer);
+  _notifHintTimer = setTimeout(() => {
+    const pop = document.getElementById('notif-popover');
+    if (!pop) return;
+    pop.innerHTML = notifPopoverContent();
+    pop.classList.add('visible');
+  }, 400);
 }
 function hideNotifHint() {
+  clearTimeout(_notifHintTimer);
   const pop = document.getElementById('notif-popover');
   if (pop) pop.classList.remove('visible');
 }
@@ -392,41 +433,41 @@ function renderPanel(panelId, sessions, isActive) {
       const isExpanded = expandedSessionIds.has(s.id);
       const state = isRunning ? (pinfo.state || 'unknown') : '';
       const waitCtx = isRunning ? (pinfo.waiting_context || '') : '';
-      const stateIcons = { waiting: '&#x23F3; Waiting', working: '&#x2692;&#xFE0F; Working', thinking: '&#x1F914; Thinking', idle: '&#x1F535; Idle', unknown: '&#x2753; Unknown' };
+      const stateIcons = { waiting: '&#x23F3; Waiting', working: '&#x2692;&#xFE0F; Working', thinking: '&#x1F914; Thinking', idle: '&#x1F535; Idle', unknown: '' };
       const stateCls = { waiting: 'badge-waiting', working: 'badge-working', thinking: 'badge-thinking', idle: 'badge-idle', unknown: 'badge-active' };
 
       html += `
         <div class="session-card ${cardClass} ${isExpanded ? 'expanded' : ''}" data-id="${s.id}">
           <div style="display:flex;gap:10px">
             <div style="flex:1;min-width:0" onclick="toggleDetail('${s.id}')" style="cursor:pointer">
-              <div class="session-time" title="${esc(s.updated_at)}">started ${esc(s.created_ago)}${isRunning && pinfo.yolo ? ` <span class="badge badge-yolo">&#x1F525; YOLO</span>` : ''}</div>
+              <div class="session-time" data-tip="Last updated: ${esc(s.updated_at)}">started ${esc(s.created_ago)}</div>
               <div class="session-top" onclick="toggleDetail('${s.id}')">
-                ${isRunning ? `<span class="live-dot ${isWaiting ? 'waiting' : (isIdle ? 'idle' : '')}" title="${isWaiting ? 'Waiting for input' : (isIdle ? 'Idle' : 'Running')}"></span>` : ''}
-                <div class="session-title">${isRunning && s.intent ? '&#x1F916; ' + esc(s.intent) : esc(s.summary || '(Untitled session)')}</div>
+                ${isRunning ? `<span class="live-dot ${isWaiting ? 'waiting' : (isIdle ? 'idle' : '')}" data-tip="${isWaiting ? 'Waiting for input' : (isIdle ? 'Idle' : 'Running')}"></span>` : ''}
+                <div class="session-title" data-tip="${isRunning && s.intent ? 'Current intent: ' + esc(s.intent) : 'Session: ' + esc(s.summary || '')}">${isRunning && s.intent ? '&#x1F916; ' + esc(s.intent) : esc(s.summary || '(Untitled session)')}</div>
+                ${isRunning && pinfo.yolo ? `<span class="badge badge-yolo" style="flex-shrink:0">&#x1F525; YOLO</span>` : ''}
               </div>
-              ${isRunning && s.intent ? `<div class="cwd-text" style="opacity:0.7">${esc(s.summary || '')}</div>` : ''}
-              ${s.cwd ? `<div class="cwd-text">&#x1F4C1; ${esc(s.cwd)}</div>` : ''}
-              ${s.recent_activity ? `<div class="cwd-text" style="color:var(--accent)">&#x1F4DD; ${esc(s.recent_activity)}</div>` : ''}
-              ${isWaiting && waitCtx ? `<div class="cwd-text" style="color:var(--yellow)">&#x23F3; ${esc(waitCtx)}</div>` : ''}
-              ${isIdle && waitCtx ? `<div class="cwd-text" style="color:var(--accent)">&#x1F535; ${esc(waitCtx)}</div>` : ''}
+              ${s.cwd ? `<div class="cwd-text" data-tip="Working directory: ${esc(s.cwd)}">&#x1F4C1; ${esc(s.cwd)}</div>` : ''}
+              ${s.recent_activity ? `<div class="cwd-text" style="color:var(--accent)" data-tip="Latest checkpoint: ${esc(s.recent_activity)}">&#x1F4DD; ${esc(s.recent_activity)}</div>` : ''}
+              ${isWaiting && waitCtx ? `<div class="cwd-text" style="color:var(--yellow)" data-tip="Waiting for: ${esc(waitCtx)}">&#x23F3; ${esc(waitCtx)}</div>` : ''}
               <div class="session-meta">
-                ${isRunning && state ? `<span class="badge ${stateCls[state] || 'badge-active'}">${stateIcons[state] || state}</span>` : ''}
-                ${isRunning && pinfo.bg_tasks ? `<span class="badge badge-bg">&#x2699;&#xFE0F; ${pinfo.bg_tasks} bg task${pinfo.bg_tasks > 1 ? 's' : ''}</span>` : ''}
-                ${s.branch ? `<span class="branch-badge">&#x2387; ${s.repository ? esc(s.repository) + ' / ' : ''}${esc(s.branch)}</span>` : ''}
-                <span class="badge badge-turns">&#x1F4AC; ${s.turn_count} turns</span>
-                ${s.checkpoint_count ? `<span class="badge badge-cp">&#x1F3C1; ${s.checkpoint_count} checkpoints</span>` : ''}
-                ${s.mcp_servers && s.mcp_servers.length ? s.mcp_servers.map(m => `<span class="badge badge-mcp">&#x1F50C; ${esc(m)}</span>`).join('') : ''}
-                <span class="badge badge-focus star-btn"onclick="event.stopPropagation();toggleStar('${s.id}')" title="Pin session">${starredSessions.has(s.id) ? '&#x2B50;' : '&#x2606;'}</span>
+                ${isRunning && state && state !== 'unknown' ? `<span class="badge ${stateCls[state] || 'badge-active'}" data-tip="State: ${state}">${stateIcons[state] || ''}</span>` : ''}
+                ${isRunning && pinfo.bg_tasks ? `<span class="badge badge-bg" data-tip="${pinfo.bg_tasks} background subagent task${pinfo.bg_tasks > 1 ? 's' : ''} running">&#x2699;&#xFE0F; ${pinfo.bg_tasks} bg task${pinfo.bg_tasks > 1 ? 's' : ''}</span>` : ''}
+                ${s.branch ? `<span class="branch-badge" data-tip="Branch: ${s.repository ? esc(s.repository) + '/' : ''}${esc(s.branch)}">&#x2387; ${s.repository ? esc(s.repository) + '/' : ''}${esc(s.branch)}</span>` : ''}
+                <span class="badge badge-turns" data-tip="${s.turn_count} conversation turns">&#x1F4AC; ${s.turn_count} turns</span>
+                ${s.checkpoint_count ? `<span class="badge badge-cp" data-tip="${s.checkpoint_count} checkpoint${s.checkpoint_count !== 1 ? 's' : ''}">&#x1F3C1; ${s.checkpoint_count} checkpoints</span>` : ''}
+                ${s.mcp_servers && s.mcp_servers.length ? s.mcp_servers.map(m => `<span class="badge badge-mcp" data-tip="MCP server: ${esc(m)}">&#x1F50C; ${esc(m)}</span>`).join('') : ''}
+                <span class="badge badge-focus star-btn" onclick="event.stopPropagation();toggleStar('${s.id}')" data-tip="${starredSessions.has(s.id) ? 'Unpin session' : 'Pin session'}">${starredSessions.has(s.id) ? '&#x2B50;' : '&#x2606;'}</span>
               </div>
             </div>
           </div>`;
 
       html += `
           <div class="restart-row">
-            <span class="restart-cmd" title="${esc(s.restart_cmd)}">${esc(s.restart_cmd)}</span>
+            <span class="restart-cmd" data-tip="Resume command: ${esc(s.restart_cmd)}">${esc(s.restart_cmd)}</span>
             <button class="copy-btn" onclick="event.stopPropagation();copyCmd(this, restartCmds['${s.id}'])">&#x1F4CB; Copy</button>
-            <button class="copy-btn" onclick="event.stopPropagation();navigator.clipboard.writeText('${s.id}');this.textContent='✓';setTimeout(()=>this.textContent='🪪',1200)" title="Copy session ID">&#x1FA96;</button>
-            ${isRunning ? `<button class="focus-btn" onclick="focusSession('${s.id}')">&#x1F4FA; Focus</button>` : ''}
+            <button class="copy-btn" onclick="event.stopPropagation();navigator.clipboard.writeText('${s.id}');this.textContent='✓';setTimeout(()=>this.textContent='🪪',1200)" data-tip="Copy session ID: ${s.id}">&#x1FA96;</button>
+            ${isRunning ? `<button class="focus-btn" onclick="focusSession('${s.id}')" data-tip="Focus terminal window">&#x1F4FA; Focus</button>` : ''}
+            ${isRunning && pinfo.pid ? `<span class="list-pid-kill" onclick="event.stopPropagation()">PID ${pinfo.pid} <span class="tile-kill-x" onclick="killSession('${s.id}', ${pinfo.pid})" data-tip="Kill process PID ${pinfo.pid}">✕</span></span>` : ''}
           </div>
           <div class="session-detail" id="detail-${s.id}"></div>
         </div>`;
@@ -569,7 +610,7 @@ async function focusSession(sid) {
   try {
     const resp = await fetch('/api/focus/' + sid, { method: 'POST' });
     const data = await resp.json();
-    if (!data.success) { console.warn('Focus failed:', data.message); }
+    if (!data.success) { alert('✗ ' + data.message); }
   } catch(e) { console.error('Focus error:', e); }
 }
 
@@ -600,7 +641,7 @@ function renderTilePanel(panelId, sessions, isActive) {
     return;
   }
 
-  const stateIcons = { waiting: '&#x23F3;', working: '&#x2692;&#xFE0F;', thinking: '&#x1F914;', idle: '&#x1F535;', unknown: '' };
+  const stateIcons = { waiting: '&#x23F3; Waiting', working: '&#x2692;&#xFE0F; Working', thinking: '&#x1F914; Thinking', idle: '&#x1F535; Idle', unknown: '' };
   const stateCls = { waiting: 'waiting-tile', working: 'active-tile', thinking: 'active-tile', idle: 'idle-tile', unknown: '' };
 
   let html = '<div class="tile-grid">';
@@ -620,24 +661,24 @@ function renderTilePanel(panelId, sessions, isActive) {
         <div class="tile-subtitle" style="font-size:11px;opacity:0.7">started ${esc(s.created_ago)}</div>
         <div class="tile-top">
           ${isRunning ? `<span class="live-dot ${isWaiting ? 'waiting' : (isIdle ? 'idle' : '')}" style="flex-shrink:0"></span>` : ''}
-          <div class="tile-title">${isRunning && s.intent ? '&#x1F916; ' + esc(s.intent) : esc(s.summary || '(Untitled session)')}</div>
+          <div class="tile-title" data-tip="${isRunning && s.intent ? 'Intent: ' + esc(s.intent) : 'Session: ' + esc(s.summary || '(Untitled session)')}">${isRunning && s.intent ? '&#x1F916; ' + esc(s.intent) : esc(s.summary || '(Untitled session)')}</div>
           ${isRunning && pinfo.yolo ? `<span class="badge badge-yolo" style="flex-shrink:0">&#x1F525;</span>` : ''}
         </div>
-        ${isRunning && s.intent ? `<div class="tile-subtitle" style="opacity:0.7">${esc(s.summary || '')}</div>` : ''}
-        ${s.branch ? `<div class="tile-subtitle"><span class="branch-badge">&#x2387; ${s.repository ? esc(s.repository) + ' / ' : ''}${esc(s.branch)}</span></div>` : ''}
-        ${s.recent_activity ? `<div class="tile-subtitle" style="color:var(--accent)">${esc(s.recent_activity)}</div>` : ''}
-        ${isWaiting && pinfo.waiting_context ? `<div class="tile-subtitle" style="color:var(--yellow)">${esc(pinfo.waiting_context.substring(0, 80))}${pinfo.waiting_context.length > 80 ? '...' : ''}</div>` : ''}
+        ${s.branch ? `<div class="tile-subtitle"><span class="branch-badge" data-tip="Repository/Branch: ${s.repository ? esc(s.repository) + '/' : ''}${esc(s.branch)}">&#x2387; ${s.repository ? esc(s.repository) + '/' : ''}${esc(s.branch)}</span></div>` : ''}
+        ${s.recent_activity ? `<div class="tile-subtitle" style="color:var(--accent)" data-tip="Latest checkpoint: ${esc(s.recent_activity)}">${esc(s.recent_activity)}</div>` : ''}
+        ${isWaiting && pinfo.waiting_context ? `<div class="tile-subtitle" style="color:var(--yellow)" data-tip="Waiting for: ${esc(pinfo.waiting_context)}">${esc(pinfo.waiting_context.substring(0, 80))}${pinfo.waiting_context.length > 80 ? '...' : ''}</div>` : ''}
         <div class="tile-meta">
-          ${isRunning && state ? `<span class="badge ${({'waiting':'badge-waiting','working':'badge-working','thinking':'badge-thinking','idle':'badge-idle'})[state] || 'badge-active'}">${stateIcons[state] || ''} ${state}</span>` : ''}
+          ${isRunning && state && state !== 'unknown' ? `<span class="badge ${({'waiting':'badge-waiting','working':'badge-working','thinking':'badge-thinking','idle':'badge-idle'})[state] || 'badge-active'}">${stateIcons[state] || state}</span>` : ''}
           ${isRunning && pinfo.bg_tasks ? `<span class="badge badge-bg">&#x2699;&#xFE0F; ${pinfo.bg_tasks} bg</span>` : ''}
           <span class="badge badge-turns">&#x1F4AC; ${s.turn_count}</span>
+          ${s.checkpoint_count ? `<span class="badge badge-cp" data-tip="${s.checkpoint_count} checkpoint${s.checkpoint_count !== 1 ? 's' : ''}">&#x1F3C1; ${s.checkpoint_count}</span>` : ''}
           ${s.mcp_servers && s.mcp_servers.length ? s.mcp_servers.map(m => `<span class="badge badge-mcp">&#x1F50C; ${esc(m)}</span>`).join('') : ''}
-          ${isRunning ? `<span class="badge badge-focus"onclick="event.stopPropagation(); focusSession('${s.id}')" title="Focus terminal window">&#x1F4FA;</span>` : ''}
-          <span class="badge badge-focus" onclick="event.stopPropagation(); copyTileCmd(this, restartCmds['${s.id}'])" title="Copy resume command">&#x1F4CB;</span>
-          <span class="badge badge-focus" onclick="event.stopPropagation();navigator.clipboard.writeText('${s.id}');this.textContent='✓';setTimeout(()=>this.textContent='🪪',1200)" title="Copy session ID">&#x1FA96;</span>
-          <span class="badge badge-focus star-btn" onclick="event.stopPropagation();toggleStar('${s.id}')" title="Pin session">${starredSessions.has(s.id) ? '&#x2B50;' : '&#x2606;'}</span>
+          ${isRunning ? `<span class="badge badge-focus" onclick="event.stopPropagation(); focusSession('${s.id}')" data-tip="Focus terminal window">&#x1F441;&#xFE0F;</span>` : ''}
+          <span class="badge badge-focus" onclick="event.stopPropagation(); copyTileCmd(this, restartCmds['${s.id}'])" data-tip="Copy resume command">&#x1F4CB;</span>
+          <span class="badge badge-focus" onclick="event.stopPropagation();navigator.clipboard.writeText('${s.id}');this.textContent='✓';setTimeout(()=>this.textContent='🪪',1200)" data-tip="Copy session ID">&#x1FA96;</span>
+          <span class="badge badge-focus star-btn" onclick="event.stopPropagation();toggleStar('${s.id}')" data-tip="${starredSessions.has(s.id) ? 'Unpin session' : 'Pin session'}">${starredSessions.has(s.id) ? '&#x2B50;' : '&#x2606;'}</span>
         </div>
-        ${isRunning && pinfo.pid ? `<div class="tile-pid-kill" onclick="event.stopPropagation()">PID ${pinfo.pid} <span class="tile-kill-x" onclick="killSession('${s.id}', ${pinfo.pid})" title="Kill process">✕</span></div>` : ''}
+        ${isRunning && pinfo.pid ? `<div class="tile-pid-kill" onclick="event.stopPropagation()">PID ${pinfo.pid} <span class="tile-kill-x" onclick="killSession('${s.id}', ${pinfo.pid})" data-tip="Kill process">✕</span></div>` : ''}
       </div>`;
   }
   html += '</div>';
@@ -647,13 +688,37 @@ function renderTilePanel(panelId, sessions, isActive) {
 async function openTileDetail(id, title) {
   document.getElementById('detail-modal-title').innerHTML = esc(title);
   const body = document.getElementById('detail-modal-body');
-  body.innerHTML = '<div class="loading">Loading...</div>';
+
+  const s = allSessions.find(x => x.id === id);
+  const pinfo = s && runningPids[s.id] ? runningPids[s.id] : {};
+  const isRunning = !!(s && runningPids[s.id]);
+  const state = isRunning ? (pinfo.state || 'unknown') : '';
+  const isWaiting = isRunning && state === 'waiting';
+  const stateIconsPop = { waiting: '&#x23F3; Waiting', working: '&#x2692;&#xFE0F; Working', thinking: '&#x1F914; Thinking', idle: '&#x1F535; Idle', unknown: '' };
+  const stateClsPop = { waiting: 'badge-waiting', working: 'badge-working', thinking: 'badge-thinking', idle: 'badge-idle', unknown: 'badge-active' };
+  let sumHtml = '';
+  if (s) {
+    sumHtml = '<div class="detail-section" style="margin-bottom:12px">';
+    if (isRunning && s.intent) sumHtml += `<div style="font-weight:600;margin-bottom:4px">&#x1F916; ${esc(s.intent)}</div>`;
+    if (s.branch) sumHtml += `<div style="margin-bottom:4px"><span class="branch-badge">&#x2387; ${s.repository ? esc(s.repository) + '/' : ''}${esc(s.branch)}</span></div>`;
+    if (s.recent_activity) sumHtml += `<div style="color:var(--accent);font-size:13px;margin-bottom:4px">&#x1F4DD; ${esc(s.recent_activity)}</div>`;
+    if (isRunning && state) sumHtml += `<span class="badge ${stateClsPop[state] || 'badge-active'}">${stateIconsPop[state] || ''}</span> `;
+    if (isWaiting && pinfo.waiting_context) sumHtml += `<div style="color:var(--yellow);font-size:13px;margin-top:4px">&#x23F3; ${esc(pinfo.waiting_context)}</div>`;
+    sumHtml += '</div>';
+  }
+  body.innerHTML = sumHtml + '<div class="loading">Loading...</div>';
   document.getElementById('detail-modal').classList.add('open');
 
   try {
     const resp = await fetch('/api/session/' + id);
     const data = await resp.json();
     let html = '';
+
+    if (isRunning && pinfo.bg_tasks && pinfo.bg_tasks > 0) {
+      html += `<div class="detail-section"><h3>&#x2699;&#xFE0F; Background Tasks</h3>`;
+      html += `<div style="color:var(--text2);font-size:13px;padding:4px 0">${pinfo.bg_tasks} background subagent task${pinfo.bg_tasks > 1 ? 's' : ''} currently running</div>`;
+      html += '</div>';
+    }
 
     if (data.checkpoints && data.checkpoints.length) {
       html += '<div class="detail-section"><h3>&#x1F3C1; Checkpoints</h3>';
@@ -699,9 +764,9 @@ async function openTileDetail(id, title) {
     html += buildToolCountsHtml(data);
 
     if (!html) html = '<div class="empty">No additional details for this session.</div>';
-    body.innerHTML = html;
+    body.innerHTML = sumHtml + html;
   } catch(e) {
-    body.innerHTML = '<div class="empty">Error loading details.</div>';
+    body.innerHTML = sumHtml + '<div class="empty">Error loading details.</div>';
   }
 }
 

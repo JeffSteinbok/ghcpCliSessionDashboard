@@ -218,22 +218,12 @@ def _match_process_to_session(creation_date_str):
 
 def _get_running_sessions_windows():
     """Find running copilot.exe processes on Windows via PowerShell/WMI."""
+    # Get all processes once, then walk ancestry in Python
     ps_script = (
-        "Get-CimInstance Win32_Process -Filter \"Name='copilot.exe'\" | "
-        "ForEach-Object { "
-        "  $cpid = $_.ProcessId; $ppid = $_.ParentProcessId; $cmd = $_.CommandLine; "
-        "  $ct = $_.CreationDate.ToUniversalTime().ToString('o'); "
-        '  $parent = Get-CimInstance Win32_Process -Filter "ProcessId=$ppid" -EA SilentlyContinue; '  # pylint: disable=line-too-long
-        '  $grandparent = if($parent){Get-CimInstance Win32_Process -Filter "ProcessId=$($parent.ParentProcessId)" -EA SilentlyContinue}; '  # pylint: disable=line-too-long
-        '  $terminal = if($grandparent){Get-CimInstance Win32_Process -Filter "ProcessId=$($grandparent.ParentProcessId)" -EA SilentlyContinue}; '  # pylint: disable=line-too-long
-        "  [PSCustomObject]@{ "
-        "    PID=$cpid; PPID=$ppid; Cmd=$cmd; CreatedUTC=$ct; "
-        "    ParentPID=if($parent){$parent.ProcessId}else{0}; "
-        "    GrandparentPID=if($grandparent){$grandparent.ProcessId}else{0}; "
-        "    TerminalPID=if($terminal){$terminal.ProcessId}else{0}; "
-        "    TerminalName=if($terminal){$terminal.Name}else{''} "
-        "  } "
-        "} | ConvertTo-Json -Depth 3"
+        "Get-CimInstance Win32_Process | "
+        "Select-Object ProcessId,ParentProcessId,Name,CommandLine,"
+        "@{N='CreatedUTC';E={$_.CreationDate.ToUniversalTime().ToString('o')}} | "
+        "ConvertTo-Json -Depth 2"
     )
     result = subprocess.run(
         ["powershell", "-NoProfile", "-Command", ps_script],
@@ -249,17 +239,75 @@ def _get_running_sessions_windows():
     if isinstance(data, dict):
         data = [data]
 
+    # Known terminal/IDE process names to look for when walking ancestry.
+    # Only include apps that own actual GUI windows — not shells (pwsh, bash, etc.)
+    _TERMINAL_NAMES = {
+        # Windows terminal apps
+        "windowsterminal.exe",
+        "wt.exe",
+        "conemu64.exe",
+        "conemu.exe",
+        "cmder.exe",
+        "mintty.exe",
+        "alacritty.exe",
+        "wezterm-gui.exe",
+        "hyper.exe",
+        "tabby.exe",
+        "kitty.exe",
+        "fluent-terminal.exe",
+        # Windows IDEs
+        "code.exe",
+        "cursor.exe",
+        # macOS terminal apps (no .exe)
+        "iterm2",
+        "terminal",
+        "alacritty",
+        "wezterm",
+        "hyper",
+        "kitty",
+        "tabby",
+        "warp",
+        "nova",
+        # macOS IDEs
+        "code",
+        "cursor",
+        "xcode",
+    }
+
+    # Build a PID -> proc lookup for ancestry walking
+    pid_map: dict = {p.get("ProcessId"): p for p in data if p.get("ProcessId")}
+
+    def _find_terminal(start_pid: int) -> tuple:
+        """Walk ancestors to find the nearest known terminal process."""
+        visited = set()
+        pid = start_pid
+        for _ in range(10):
+            proc = pid_map.get(pid)
+            if not proc:
+                break
+            name = (proc.get("Name") or "").lower()
+            if name in _TERMINAL_NAMES:
+                return proc.get("ProcessId", 0), proc.get("Name", "")
+            ppid = proc.get("ParentProcessId", 0)
+            if ppid == 0 or ppid in visited:
+                break
+            visited.add(pid)
+            pid = ppid
+        return 0, ""
+
+    copilot_procs = [p for p in data if (p.get("Name") or "").lower() == "copilot.exe"]
+
     sessions = {}
     unmatched = []  # processes without --resume that need timestamp matching
 
-    for proc in data:
-        cmd = proc.get("Cmd", "")
+    for proc in copilot_procs:
+        cmd = proc.get("CommandLine", "")
+        terminal_pid, terminal_name = _find_terminal(proc.get("ParentProcessId", 0))
         proc_info = {
-            "pid": proc.get("PID"),
-            "parent_pid": proc.get("ParentPID"),
-            "grandparent_pid": proc.get("GrandparentPID"),
-            "terminal_pid": proc.get("TerminalPID"),
-            "terminal_name": proc.get("TerminalName", ""),
+            "pid": proc.get("ProcessId"),
+            "parent_pid": proc.get("ParentProcessId"),
+            "terminal_pid": terminal_pid,
+            "terminal_name": terminal_name,
             "cmdline": cmd,
             "yolo": "--yolo" in cmd,
             "mcp_servers": _parse_mcp_servers(cmd),
@@ -268,7 +316,7 @@ def _get_running_sessions_windows():
         if "--resume" in cmd:
             parts = cmd.split("--resume")
             if len(parts) > 1:
-                sid = parts[1].strip().split()[0].strip('"').strip("'")
+                sid = parts[1].strip().lstrip("=").split()[0].strip('"').strip("'")
                 sessions[sid] = proc_info
         else:
             # No --resume flag — try to match by creation time
@@ -278,8 +326,10 @@ def _get_running_sessions_windows():
     for proc, proc_info in unmatched:
         created = proc.get("CreatedUTC", "")
         sid = _match_process_to_session(created)
-        if sid and sid not in sessions:
-            sessions[sid] = proc_info
+        if sid:
+            # Prefer this over a previously unmatched entry, but don't clobber --resume matches
+            if sid not in sessions or sessions[sid].get("cmdline", "").find("--resume") == -1:
+                sessions[sid] = proc_info
 
     return sessions
 
@@ -502,6 +552,29 @@ def _read_event_data(session_id):
     return result
 
 
+def _get_live_branch(cwd: str) -> str:
+    """Read the current git branch directly from .git/HEAD (no subprocess)."""
+    if not cwd:
+        return ""
+    try:
+        head = os.path.join(cwd, ".git", "HEAD")
+        if not os.path.exists(head):
+            # Walk up to find the git root (handles worktrees pointing to main .git)
+            parts = cwd.replace("\\", "/").split("/")
+            for i in range(len(parts) - 1, 0, -1):
+                candidate = "/".join(parts[:i]) + "/.git/HEAD"
+                if os.path.exists(candidate):
+                    head = candidate
+                    break
+        with open(head, encoding="utf-8") as f:
+            line = f.read().strip()
+        if line.startswith("ref: refs/heads/"):
+            return line[len("ref: refs/heads/") :]
+    except Exception:
+        pass
+    return ""
+
+
 def get_session_event_data(session_id, is_running=False):
     """
     Get cached event data for a session.
@@ -511,6 +584,12 @@ def get_session_event_data(session_id, is_running=False):
         return _event_data_cache[session_id]
 
     data = _read_event_data(session_id)
+
+    # For running sessions, refresh branch from live .git/HEAD
+    if is_running and data.get("cwd"):
+        live = _get_live_branch(data["cwd"])
+        if live:
+            data["branch"] = live
 
     # Cache permanently for inactive sessions
     if not is_running:
@@ -576,9 +655,52 @@ def _focus_session_window_windows(session_id, sessions):
         return False, "pywin32 not installed. Run: session_dashboard.py install"
 
     info = sessions[session_id]
+    copilot_pid = info.get("pid", 0)
     terminal_pid = info.get("terminal_pid", 0)
+    terminal_name = info.get("terminal_name", "")
+
+    # Build full ancestry chain for diagnostics
+    def _get_ancestry(start_pid):
+        chain = []
+        pid = start_pid
+        visited = set()
+        for _ in range(12):
+            if pid in visited:
+                break
+            visited.add(pid)
+            try:
+                procs = subprocess.run(
+                    [
+                        "powershell",
+                        "-NoProfile",
+                        "-Command",
+                        f"Get-CimInstance Win32_Process -Filter 'ProcessId={pid}' | "
+                        f"Select-Object ProcessId,ParentProcessId,Name | ConvertTo-Json",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    check=False,
+                )
+                import json as _json
+
+                p = _json.loads(procs.stdout)
+                if isinstance(p, list):
+                    p = p[0]
+                chain.append(f"  PID {p.get('ProcessId')} {p.get('Name')}")
+                pid = p.get("ParentProcessId", 0)
+                if not pid:
+                    break
+            except Exception:
+                chain.append(f"  PID {pid} (lookup failed)")
+                break
+        return "\n".join(chain)
+
+    tree = _get_ancestry(copilot_pid)
+    diag = f"copilot PID={copilot_pid}, terminal_pid={terminal_pid} ({terminal_name})\nProcess tree:\n{tree}"
+
     if not terminal_pid:
-        return False, "Could not find terminal window for this session."
+        return False, f"Could not find terminal window.\n{diag}"
 
     target_hwnd = None
 
@@ -594,17 +716,28 @@ def _focus_session_window_windows(session_id, sessions):
 
     win32gui.EnumWindows(enum_cb, None)
     if not target_hwnd:
-        return False, f"No visible window found for terminal PID {terminal_pid}."
+        return False, f"No visible window found for terminal PID {terminal_pid}.\n{diag}"
 
     try:
+        import ctypes
+
         placement = win32gui.GetWindowPlacement(target_hwnd)
         if placement[1] == win32con.SW_SHOWMINIMIZED:
             win32gui.ShowWindow(target_hwnd, win32con.SW_RESTORE)
-        win32gui.SetForegroundWindow(target_hwnd)
+
+        fg_hwnd = win32gui.GetForegroundWindow()
+        fg_thread = win32process.GetWindowThreadProcessId(fg_hwnd)[0]
+        my_thread = win32process.GetWindowThreadProcessId(target_hwnd)[0]
+        if fg_thread != my_thread:
+            ctypes.windll.user32.AttachThreadInput(fg_thread, my_thread, True)
+            win32gui.SetForegroundWindow(target_hwnd)
+            ctypes.windll.user32.AttachThreadInput(fg_thread, my_thread, False)
+        else:
+            win32gui.SetForegroundWindow(target_hwnd)
         title = win32gui.GetWindowText(target_hwnd)
-        return True, f"Focused: {title}"
+        return True, f"Focused: {title}\n{diag}"
     except Exception as e:
-        return False, f"Could not focus window: {e}"
+        return False, f"Could not focus window: {e}\n{diag}"
 
 
 def _focus_session_window_macos(session_id, sessions):

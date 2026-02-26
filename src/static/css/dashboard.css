@@ -276,12 +276,13 @@
     padding: 14px 16px; transition: background 0.1s;
   }
   .session-card:last-child { border-bottom: none; }
-  .session-card:hover { background: var(--surface2); }
+  .session-card:hover { background: var(--surface2); transition-delay: 0.4s; }
+  .session-card:not(:hover) { transition-delay: 0s; }
   .session-card.active-session { border-left: 3px solid var(--green); }
   .session-card.waiting-session { border-left: 3px solid var(--yellow); }
   .session-card.idle-session { border-left: 3px solid var(--accent); }
   .session-top { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
-  .session-title { font-weight: 600; font-size: 16px; flex: 1; }
+  .session-title { font-weight: 600; font-size: 16px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .session-time { color: var(--text2); font-size: 13px; white-space: nowrap; }
   .live-dot {
     width: 8px; height: 8px; border-radius: 50%; background: var(--green);
@@ -292,7 +293,10 @@
   .session-meta { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; align-items: center; }
   .badge {
     font-size: 12px; padding: 2px 9px; border-radius: 10px; font-weight: 500;
+    transition: background 0.15s;
   }
+  .badge:hover { transition-delay: 0.4s; }
+  .badge:not(:hover) { transition-delay: 0s; }
   .badge-repo { background: rgba(88,166,255,0.12); color: var(--accent); }
   .badge-branch { background: rgba(188,140,255,0.12); color: var(--purple); }
   .badge-turns { background: rgba(63,185,80,0.12); color: var(--green); }
@@ -326,7 +330,8 @@
     border-radius: 4px; padding: 5px 10px; font-size: 13px; cursor: pointer;
     white-space: nowrap; transition: background 0.15s, color 0.15s; flex-shrink: 0;
   }
-  .copy-btn:hover, .focus-btn:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .copy-btn:hover, .focus-btn:hover { background: var(--accent); color: #fff; border-color: var(--accent); transition-delay: 0.4s; }
+  .copy-btn:not(:hover), .focus-btn:not(:hover) { transition-delay: 0s; }
   .copy-btn.copied { background: var(--green); color: #fff; border-color: var(--green); }
 
   /* ===== DETAIL PANEL ===== */
@@ -394,7 +399,7 @@
     background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
     padding: 14px; cursor: pointer; transition: border-color 0.15s, background 0.15s;
     display: flex; flex-direction: column; gap: 6px; min-height: 100px;
-    position: relative; padding-bottom: 36px;
+    position: relative; padding-bottom: 36px; border-left: 4px solid var(--border);
   }
   .tile-pid-kill {
     position: absolute; bottom: 8px; right: 10px;
@@ -429,7 +434,8 @@
     border-radius: 6px; padding: 5px 12px; font-size: 14px; cursor: pointer;
     transition: background 0.15s, color 0.15s;
   }
-  .view-btn:hover { background: var(--copy-hover); }
+  .view-btn:hover { background: var(--copy-hover); transition-delay: 0.4s; }
+  .view-btn:not(:hover) { transition-delay: 0s; }
   .view-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
   .notif-popover {
     display: none; position: absolute; right: 0; top: calc(100% + 8px);
@@ -483,7 +489,7 @@
   .disconnect-detail { font-size: 14px; color: var(--text2); line-height: 1.7; margin-bottom: 16px; }
   .disconnect-detail strong { color: var(--text); }
   .disconnect-retry { font-size: 13px; color: var(--yellow); font-weight: 600; }
-  .branch-badge { display:inline-block; background:var(--surface2); border:1px solid var(--border); border-radius:4px; padding:1px 7px; font-size:11px; font-family:monospace; color:var(--text2); margin-left:4px; }
+  .branch-badge { display:inline-block; background:var(--surface2); border:1px solid var(--border); border-radius:4px; padding:1px 7px; font-size:11px; font-family:monospace; color:var(--text2); margin-left:4px; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom; }
   .cp-item { border-left: 2px solid var(--border); padding: 4px 0 4px 10px; margin: 4px 0; cursor:pointer; }
   .cp-item:hover { border-color: var(--accent); }
 
