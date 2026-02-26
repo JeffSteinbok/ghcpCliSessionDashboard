@@ -439,6 +439,7 @@ def api_version():
             if not m:
                 return (0, 0, 0, 0)
             nums = tuple(int(x) for x in m.group(1).split("."))
+            # Pre-release (a/b/rc) sorts before the final release
             pre = 0 if re.search(r"(a|b|rc)\d*$", v) else 1
             return (*nums, pre)
 

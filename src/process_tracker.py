@@ -415,7 +415,7 @@ def _get_running_sessions_unix() -> dict[str, ProcessInfo]:
         # No --resume or couldn't extract session ID — try timestamp matching
         try:
             proc_time = datetime.strptime(lstart_str, "%a %b %d %H:%M:%S %Y")
-            proc_time = proc_time.replace(tzinfo=UTC)
+            proc_time = proc_time.astimezone(UTC)
             sid = _match_process_to_session(proc_time.isoformat())
             if sid and sid not in sessions:
                 sessions[sid] = proc_info
