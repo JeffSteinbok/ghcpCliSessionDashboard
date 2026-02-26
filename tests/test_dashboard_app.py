@@ -10,10 +10,11 @@ import pytest
 from src.dashboard_app import (
     app,
     build_restart_command,
-    get_group_name,
     get_recent_activity,
     time_ago,
 )
+from src.grouping import get_group_name
+from src.models import EventData, ProcessInfo
 
 
 # ---------------------------------------------------------------------------
@@ -82,37 +83,34 @@ class TestTimeAgo:
 
 
 class TestGetGroupName:
-    def _session(self, cwd="", summary="", first_msg="", last_cp_overview=""):
+    def _session(self, cwd="", summary="", first_msg="", last_cp_overview="", repository=""):
         return {
             "cwd": cwd,
             "summary": summary,
             "first_msg": first_msg,
             "last_cp_overview": last_cp_overview,
+            "repository": repository,
         }
 
-    def test_src_path_returns_project_name(self):
+    def test_repository_field_used(self):
+        s = self._session(repository="owner/my-project")
+        assert get_group_name(s) == "my-project"
+
+    def test_repository_without_owner(self):
+        s = self._session(repository="standalone-repo")
+        assert get_group_name(s) == "standalone-repo"
+
+    def test_cwd_last_segment(self):
         s = self._session(cwd="/src/MyProject/feature")
-        assert get_group_name(s) == "MyProject"
+        assert get_group_name(s) == "feature"
 
-    def test_reviewstarclient_in_src_path(self):
-        s = self._session(cwd="/src/ReviewStarClientWeb/foo")
-        assert get_group_name(s) == "ReviewStarClient"
+    def test_cwd_skips_common_dirs(self):
+        s = self._session(cwd="/Users/home/src")
+        assert get_group_name(s) == "General"
 
-    def test_repositorytools_in_src_path(self):
-        s = self._session(cwd="/src/RepositoryTools/bar")
-        assert get_group_name(s) == "OneDrive.RepositoryTools"
-
-    def test_reviewstarclient_in_context(self):
-        s = self._session(summary="Working on ReviewStarClient feature")
-        assert get_group_name(s) == "ReviewStarClient"
-
-    def test_repositorytools_in_context(self):
-        s = self._session(first_msg="Fix bug in OneDrive.RepositoryTools")
-        assert get_group_name(s) == "OneDrive.RepositoryTools"
-
-    def test_spocore_in_context(self):
-        s = self._session(summary="Working in spo.core module")
-        assert get_group_name(s) == "SPO.Core"
+    def test_repository_takes_priority_over_cwd(self):
+        s = self._session(cwd="/some/path/foo", repository="org/bar")
+        assert get_group_name(s) == "bar"
 
     def test_dashboard_keyword(self):
         s = self._session(summary="Improve session dashboard UI")
@@ -131,7 +129,7 @@ class TestGetGroupName:
         assert get_group_name(s) == "Branch Cleanup"
 
     def test_cwd_last_segment_fallback(self):
-        s = self._session(cwd="C:/Users/jeffs/GitHub/MyRepo")
+        s = self._session(cwd="C:/Users/homer/MyRepo")
         assert get_group_name(s) == "MyRepo"
 
     def test_no_cwd_no_keywords_returns_general(self):
@@ -139,7 +137,7 @@ class TestGetGroupName:
         assert get_group_name(s) == "General"
 
     def test_windows_backslash_cwd(self):
-        s = self._session(cwd="C:\\Users\\jeffs\\GitHub\\MyProject")
+        s = self._session(cwd="C:\\Users\\homer\\MyProject")
         assert get_group_name(s) == "MyProject"
 
     def test_spec_keyword(self):
@@ -275,7 +273,7 @@ class TestApiSessions:
         with (
             patch("src.dashboard_app.DB_PATH", db_path),
             patch("src.dashboard_app.get_running_sessions", return_value={}),
-            patch("src.dashboard_app.get_session_event_data", return_value={}),
+            patch("src.dashboard_app.get_session_event_data", return_value=EventData()),
         ):
             resp = client.get("/api/sessions")
         assert resp.status_code == 200
@@ -294,19 +292,19 @@ class TestApiSessions:
     def test_running_session_enriched(self, client, populated_db):
         _conn, db_path = populated_db
         running = {
-            "sess-1": {
-                "pid": 1234,
-                "state": "working",
-                "waiting_context": "",
-                "bg_tasks": 0,
-                "yolo": True,
-                "mcp_servers": ["github"],
-            }
+            "sess-1": ProcessInfo(
+                pid=1234,
+                state="working",
+                waiting_context="",
+                bg_tasks=0,
+                yolo=True,
+                mcp_servers=["github"],
+            )
         }
         with (
             patch("src.dashboard_app.DB_PATH", db_path),
             patch("src.dashboard_app.get_running_sessions", return_value=running),
-            patch("src.dashboard_app.get_session_event_data", return_value={}),
+            patch("src.dashboard_app.get_session_event_data", return_value=EventData()),
         ):
             resp = client.get("/api/sessions")
         data = resp.get_json()
@@ -357,11 +355,13 @@ class TestApiFiles:
 
 class TestApiProcesses:
     def test_returns_dict(self, client):
-        fake = {"sess-1": {"pid": 999, "state": "working"}}
+        from dataclasses import asdict
+
+        fake = {"sess-1": ProcessInfo(pid=999, state="working")}
         with patch("src.dashboard_app.get_running_sessions", return_value=fake):
             resp = client.get("/api/processes")
         assert resp.status_code == 200
-        assert resp.get_json() == fake
+        assert resp.get_json() == {"sess-1": asdict(ProcessInfo(pid=999, state="working"))}
 
 
 class TestApiFocus:
@@ -388,14 +388,14 @@ class TestApiKill:
         assert resp.get_json()["success"] is False
 
     def test_no_pid_available(self, client):
-        running = {"sess-1": {"state": "working"}}
+        running = {"sess-1": ProcessInfo(pid=0, state="working")}
         with patch("src.dashboard_app.get_running_sessions", return_value=running):
             resp = client.post("/api/kill/sess-1")
         assert resp.status_code == 404
         assert resp.get_json()["success"] is False
 
     def test_success_unix(self, client):
-        running = {"sess-1": {"pid": 1234, "state": "working"}}
+        running = {"sess-1": ProcessInfo(pid=1234, state="working")}
         with (
             patch("src.dashboard_app.get_running_sessions", return_value=running),
             patch("src.dashboard_app.sys.platform", "linux"),
@@ -409,7 +409,7 @@ class TestApiKill:
         mock_kill.assert_called_once_with(1234, signal.SIGTERM)
 
     def test_success_windows(self, client):
-        running = {"sess-1": {"pid": 5678, "state": "working"}}
+        running = {"sess-1": ProcessInfo(pid=5678, state="working")}
         with (
             patch("src.dashboard_app.get_running_sessions", return_value=running),
             patch("src.dashboard_app.sys.platform", "win32"),
@@ -424,7 +424,7 @@ class TestApiKill:
         assert str(5678) in args
 
     def test_kill_failure(self, client):
-        running = {"sess-1": {"pid": 1234, "state": "working"}}
+        running = {"sess-1": ProcessInfo(pid=1234, state="working")}
         with (
             patch("src.dashboard_app.get_running_sessions", return_value=running),
             patch("src.dashboard_app.sys.platform", "linux"),

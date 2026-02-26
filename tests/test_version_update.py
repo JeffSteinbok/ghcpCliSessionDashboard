@@ -13,9 +13,13 @@ from src.dashboard_app import app, _version_cache
 @pytest.fixture(autouse=True)
 def reset_version_cache():
     """Reset the version cache before each test."""
-    _version_cache.update({"latest": None, "update_available": False, "checked_at": 0.0})
+    _version_cache.latest = None
+    _version_cache.update_available = False
+    _version_cache.checked_at = 0.0
     yield
-    _version_cache.update({"latest": None, "update_available": False, "checked_at": 0.0})
+    _version_cache.latest = None
+    _version_cache.update_available = False
+    _version_cache.checked_at = 0.0
 
 
 @pytest.fixture
@@ -70,7 +74,7 @@ class TestApiVersion:
             client.get("/api/version")
 
         # Force the cache to appear expired by backdating checked_at beyond the TTL
-        _version_cache["checked_at"] = time.monotonic() - dashboard_app._VERSION_CACHE_TTL - 1
+        _version_cache.checked_at = time.monotonic() - dashboard_app._VERSION_CACHE_TTL - 1
 
         with patch("src.dashboard_app.urllib.request.urlopen", return_value=_make_pypi_response("6.0.0")) as mock2:
             resp = client.get("/api/version")

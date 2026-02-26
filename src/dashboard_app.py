@@ -28,6 +28,8 @@ if sys.version_info < (3, 12):
 from flask import Flask, jsonify, render_template, request, send_from_directory
 
 from .__version__ import __version__
+from .grouping import get_group_name
+from .models import EventData, ProcessInfo, VersionCache
 from .process_tracker import (
     focus_session_window,
     get_recent_output,
@@ -41,7 +43,7 @@ DB_PATH = os.path.join(os.path.expanduser("~"), ".copilot", "session-store.db")
 
 _PYPI_URL = "https://pypi.org/pypi/ghcp-cli-dashboard/json"
 _VERSION_CACHE_TTL = 1800  # 30 minutes
-_version_cache: dict = {"latest": None, "update_available": False, "checked_at": 0.0}
+_version_cache = VersionCache()
 
 
 def get_db():
@@ -73,78 +75,6 @@ def time_ago(iso_str):
         return f"{seconds // 86400}d ago"
     except Exception:
         return iso_str
-
-
-def get_group_name(session):
-    """Derive a project/area group name from session metadata."""
-    cwd = (session.get("cwd") or "").replace("\\", "/")
-    summary = (session.get("summary") or "").lower()
-    first_msg = (session.get("first_msg") or "").lower()
-    last_cp = (session.get("last_cp_overview") or "").lower()
-    context = f"{summary} {first_msg} {last_cp}"
-
-    # --- CWD-based: extract project from path after /src/ ---
-    if "/src/" in cwd.lower():
-        idx = cwd.lower().index("/src/") + 5
-        project = cwd[idx:].split("/")[0]
-        if project:
-            # Normalize known project families
-            pl = project.lower()
-            if "reviewstarclient" in pl:
-                return "ReviewStarClient"
-            if "repositorytools" in pl:
-                return "OneDrive.RepositoryTools"
-            return project
-
-    # --- Content-based: look for project/repo references ---
-    # Check for repo URLs or known project names in first message or checkpoints
-    if "reviewstarclient" in context or "reviewstar" in context:
-        return "ReviewStarClient"
-    if "repositorytools" in context or "onedrive.repositorytools" in context:
-        return "OneDrive.RepositoryTools"
-    if "spo.core" in context or "spocore" in context:
-        return "SPO.Core"
-
-    # CWD subdirectory of user home
-    if cwd:
-        parts = cwd.replace("\\", "/").rstrip("/").split("/")
-        meaningful = [
-            p
-            for p in parts
-            if p.lower()
-            not in (
-                "",
-                "c:",
-                "q:",
-                "d:",
-                "users",
-                "home",
-                "jeffstei",
-                "jeffsteinbok",
-                "src",
-            )
-        ]
-        if meaningful:
-            return meaningful[-1]
-
-    # --- Activity-based: infer from summary and first message ---
-    cr_agent_terms = ["code review agent", "review framework", "review agent framework"]
-    if any(w in context for w in cr_agent_terms):
-        return "Code Review Agent Framework"
-    if any(w in context for w in ["code review", "pr review", "merlinbot"]):
-        return "PR Reviews"
-    if "pipeline" in context or "build pipeline" in context or "ci/cd" in context:
-        return "CI/CD Pipelines"
-    if any(w in context for w in ["prune", "cleanup", "delete branch", "stale"]):
-        return "Branch Cleanup"
-    if any(w in context for w in ["sync", "merge", "rebase"]):
-        return "Git Sync"
-    if "dashboard" in context or "monitor" in context or "session" in context:
-        return "Session Dashboard"
-    if any(w in context for w in ["spec", "specification", "document"]):
-        return "Specifications"
-
-    return "General"
 
 
 def get_recent_activity(session):
@@ -225,6 +155,66 @@ def build_restart_command(session, yolo=False, cmdline=""):
 
 
 # ---------------------------------------------------------------------------
+# Session query helpers
+# ---------------------------------------------------------------------------
+
+_SESSIONS_QUERY = """
+    SELECT
+        s.id, s.cwd, s.repository, s.branch, s.summary,
+        s.created_at, s.updated_at,
+        (SELECT COUNT(*) FROM turns t WHERE t.session_id = s.id) as turn_count,
+        (SELECT COUNT(*) FROM session_files sf WHERE sf.session_id = s.id) as file_count,
+        (SELECT COUNT(*) FROM checkpoints cp WHERE cp.session_id = s.id) as checkpoint_count,
+        (SELECT user_message FROM turns t WHERE t.session_id = s.id AND t.turn_index = 0) as first_msg,
+        (SELECT title FROM checkpoints c WHERE c.session_id = s.id ORDER BY checkpoint_number DESC LIMIT 1) as last_cp_title,
+        (SELECT overview FROM checkpoints c WHERE c.session_id = s.id ORDER BY checkpoint_number DESC LIMIT 1) as last_cp_overview
+    FROM sessions s
+    ORDER BY s.updated_at DESC
+"""
+
+
+def _enrich_session(s: dict, proc: ProcessInfo | None, evt: EventData) -> dict:
+    """Enrich a raw session row with computed fields."""
+    s["time_ago"] = time_ago(s["updated_at"])
+    s["created_ago"] = time_ago(s["created_at"])
+    is_running = proc is not None
+    s["is_running"] = is_running
+
+    if proc:
+        s["state"] = proc.state
+        s["waiting_context"] = proc.waiting_context
+        s["bg_tasks"] = proc.bg_tasks
+    else:
+        s["state"] = None
+        s["waiting_context"] = ""
+        s["bg_tasks"] = 0
+
+    # Backfill cwd/branch/repo from events when SQL has NULLs
+    if not s.get("cwd") and evt.cwd:
+        s["cwd"] = evt.cwd
+    if not s.get("branch") and evt.branch:
+        s["branch"] = evt.branch
+    if not s.get("repository") and evt.repository:
+        s["repository"] = evt.repository
+
+    s["group"] = get_group_name(s)
+    s["recent_activity"] = get_recent_activity(s)
+    s["restart_cmd"] = build_restart_command(
+        s, yolo=proc.yolo if proc else False, cmdline=proc.cmdline if proc else ""
+    )
+    s["mcp_servers"] = proc.mcp_servers if proc else evt.mcp_servers
+    s["tool_calls"] = evt.tool_calls
+    s["subagent_runs"] = evt.subagent_runs
+    s["intent"] = evt.intent
+
+    # Don't send large text fields to the client
+    s.pop("first_msg", None)
+    s.pop("last_cp_overview", None)
+    s.pop("last_cp_title", None)
+    return s
+
+
+# ---------------------------------------------------------------------------
 # API Routes
 # ---------------------------------------------------------------------------
 
@@ -240,74 +230,16 @@ def api_sessions():
         db = get_db()
     except FileNotFoundError as e:
         return jsonify({"error": str(e)}), 503
-    rows = db.execute("""
-        SELECT
-            s.id, s.cwd, s.repository, s.branch, s.summary,
-            s.created_at, s.updated_at,
-            (SELECT COUNT(*) FROM turns t WHERE t.session_id = s.id) as turn_count,
-            (SELECT COUNT(*) FROM session_files sf WHERE sf.session_id = s.id) as file_count,
-            (SELECT COUNT(*) FROM checkpoints cp WHERE cp.session_id = s.id) as checkpoint_count,
-            (SELECT user_message FROM turns t WHERE t.session_id = s.id AND t.turn_index = 0) as first_msg,
-            (SELECT title FROM checkpoints c WHERE c.session_id = s.id ORDER BY checkpoint_number DESC LIMIT 1) as last_cp_title,
-            (SELECT overview FROM checkpoints c WHERE c.session_id = s.id ORDER BY checkpoint_number DESC LIMIT 1) as last_cp_overview
-        FROM sessions s
-        ORDER BY s.updated_at DESC
-    """).fetchall()
+    rows = db.execute(_SESSIONS_QUERY).fetchall()
     db.close()
 
-    # Get running processes to check yolo flag
     running = get_running_sessions()
-
     result = []
     for r in rows:
         s = dict(r)
-        s["time_ago"] = time_ago(s["updated_at"])
-        s["created_ago"] = time_ago(s["created_at"])
         proc = running.get(s["id"])
-        is_running = proc is not None
-
-        # Add running status and state to session
-        s["is_running"] = is_running
-        if proc:
-            s["state"] = proc.get("state", "unknown")
-            s["waiting_context"] = proc.get("waiting_context", "")
-            s["bg_tasks"] = proc.get("bg_tasks", 0)
-        else:
-            s["state"] = None
-            s["waiting_context"] = ""
-            s["bg_tasks"] = 0
-
-        # Get event data (cached for inactive sessions, fresh for active)
-        evt = get_session_event_data(s["id"], is_running=is_running)
-
-        # Backfill cwd/branch/repo from events when SQL has NULLs
-        if not s.get("cwd") and evt.get("cwd"):
-            s["cwd"] = evt["cwd"]
-        if not s.get("branch") and evt.get("branch"):
-            s["branch"] = evt["branch"]
-        if not s.get("repository") and evt.get("repository"):
-            s["repository"] = evt["repository"]
-
-        s["group"] = get_group_name(s)
-        s["recent_activity"] = get_recent_activity(s)
-        had_yolo = proc["yolo"] if proc else False
-        proc_cmdline = proc.get("cmdline", "") if proc else ""
-        s["restart_cmd"] = build_restart_command(s, yolo=had_yolo, cmdline=proc_cmdline)
-        # MCP: from running process if active, else from cached event data
-        if proc:
-            s["mcp_servers"] = proc.get("mcp_servers", [])
-        else:
-            s["mcp_servers"] = evt.get("mcp_servers", [])
-        # Tool call counts from cached event data
-        s["tool_calls"] = evt.get("tool_calls", 0)
-        s["subagent_runs"] = evt.get("subagent_runs", 0)
-        # Current intent (most useful for active sessions)
-        s["intent"] = evt.get("intent", "")
-        # Don't send large text fields to the client
-        s.pop("first_msg", None)
-        s.pop("last_cp_overview", None)
-        s.pop("last_cp_title", None)
-        result.append(s)
+        evt = get_session_event_data(s["id"], is_running=proc is not None)
+        result.append(_enrich_session(s, proc, evt))
     return jsonify(result)
 
 
@@ -388,7 +320,9 @@ def api_files():
 @app.route("/api/processes")
 def api_processes():
     """Return currently running copilot sessions mapped by session ID."""
-    return jsonify(get_running_sessions())
+    from dataclasses import asdict
+
+    return jsonify({sid: asdict(info) for sid, info in get_running_sessions().items()})
 
 
 @app.route("/api/kill/<path:session_id>", methods=["POST"])
@@ -399,7 +333,7 @@ def api_kill(session_id):
         return jsonify(
             {"success": False, "message": "Session not found among running processes"}
         ), 404
-    pid = running[session_id].get("pid")
+    pid = running[session_id].pid
     if not pid:
         return jsonify({"success": False, "message": "PID not available"}), 404
     try:
@@ -481,15 +415,12 @@ def service_worker():
 def api_version():
     """Return current version and check PyPI for the latest release."""
     now = time.monotonic()
-    if (
-        _version_cache["latest"] is not None
-        and now - _version_cache["checked_at"] < _VERSION_CACHE_TTL
-    ):
+    if _version_cache.latest is not None and now - _version_cache.checked_at < _VERSION_CACHE_TTL:
         return jsonify(
             {
                 "current": __version__,
-                "latest": _version_cache["latest"],
-                "update_available": _version_cache["update_available"],
+                "latest": _version_cache.latest,
+                "update_available": _version_cache.update_available,
             }
         )
 
@@ -509,9 +440,9 @@ def api_version():
         latest = __version__
         update_available = False
 
-    _version_cache.update(
-        {"latest": latest, "update_available": update_available, "checked_at": now}
-    )
+    _version_cache.latest = latest
+    _version_cache.update_available = update_available
+    _version_cache.checked_at = now
     return jsonify({"current": __version__, "latest": latest, "update_available": update_available})
 
 
