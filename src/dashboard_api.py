@@ -388,7 +388,6 @@ def api_version():
     try:
         with urllib.request.urlopen(PYPI_PACKAGE_URL, timeout=PYPI_FETCH_TIMEOUT) as resp:
             data = json.loads(resp.read())
-        latest = data["info"]["version"]
 
         def _ver(v: str) -> tuple:
             """Parse a PEP 440-ish version into a comparable tuple."""
@@ -399,6 +398,16 @@ def api_version():
             # Pre-release (a/b/rc) sorts before the final release
             pre = 0 if re.search(r"(a|b|rc)\d*$", v) else 1
             return (*nums, pre)
+
+        def _is_prerelease(v: str) -> bool:
+            return bool(re.search(r"(a|b|rc|dev)\d*$", v))
+
+        if _is_prerelease(__version__):
+            # On a pre-release: consider all versions (including pre-releases)
+            latest = max(data.get("releases", {}), key=_ver, default=__version__)
+        else:
+            # On stable: only offer stable upgrades
+            latest = data["info"]["version"]
 
         update_available = _ver(latest) > _ver(__version__)
     except Exception:

@@ -28,9 +28,15 @@ def client():
     return TestClient(app)
 
 
-def _make_pypi_response(version: str) -> MagicMock:
+def _make_pypi_response(version: str, releases: dict | None = None) -> MagicMock:
     """Build a fake urllib response returning the given version."""
-    body = json.dumps({"info": {"version": version}}).encode()
+    data: dict = {"info": {"version": version}}
+    if releases is not None:
+        data["releases"] = releases
+    else:
+        # Default: include the version in releases so pre-release logic works
+        data["releases"] = {version: []}
+    body = json.dumps(data).encode()
     mock_resp = MagicMock()
     mock_resp.read.return_value = body
     mock_resp.__enter__ = lambda s: s
