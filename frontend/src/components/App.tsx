@@ -59,8 +59,10 @@ function Dashboard() {
     (s) => processes[s.id]?.state === "waiting",
   ).length;
 
-  // Last updated — simply computed from session data presence
-  const lastUpdated = sessions.length > 0 ? new Date().toLocaleTimeString() : "-";
+  // Last updated — based on actual fetch timestamp
+  const lastUpdated = state.lastFetchedAt
+    ? new Date(state.lastFetchedAt).toLocaleTimeString()
+    : "-";
 
   // Current timestamp for Timeline. Date.now() is inherently impure but required
   // for a live timeline — the value refreshes on every poll-triggered re-render.

@@ -4,7 +4,7 @@
 
 import type { Session, ProcessInfo } from "../types";
 import { COPY_FEEDBACK_MS } from "../constants";
-import { esc, STATE_LABELS, STATE_BADGE_CLASS, TILE_STATE_CLASS } from "../utils";
+import { STATE_LABELS, STATE_BADGE_CLASS, TILE_STATE_CLASS } from "../utils";
 import { useAppState, useAppDispatch } from "../state";
 import { focusSession, killSession } from "../api";
 
@@ -29,7 +29,7 @@ export default function SessionTile({ session: s, processInfo, onOpenDetail }: S
 
   const handleCopy = (e: React.MouseEvent) => {
     stop(e);
-    navigator.clipboard.writeText(s.restart_cmd);
+    navigator.clipboard.writeText(s.restart_cmd).catch(() => {});
     const btn = e.currentTarget;
     const orig = btn.textContent;
     btn.textContent = "✓";
@@ -38,7 +38,7 @@ export default function SessionTile({ session: s, processInfo, onOpenDetail }: S
 
   const handleCopyId = (e: React.MouseEvent) => {
     stop(e);
-    navigator.clipboard.writeText(s.id);
+    navigator.clipboard.writeText(s.id).catch(() => {});
     const btn = e.currentTarget;
     btn.textContent = "✓";
     setTimeout(() => { btn.textContent = "🪪"; }, COPY_FEEDBACK_MS);
@@ -47,7 +47,7 @@ export default function SessionTile({ session: s, processInfo, onOpenDetail }: S
   return (
     <div className={`tile-card ${tileClass}`} onClick={handleClick}>
       <div className="tile-subtitle" style={{ fontSize: 11, opacity: 0.7 }}>
-        started {esc(s.created_ago)}
+        started {s.created_ago}
       </div>
 
       {/* Title row */}
@@ -62,8 +62,8 @@ export default function SessionTile({ session: s, processInfo, onOpenDetail }: S
           className="tile-title"
           data-tip={
             isRunning && s.intent
-              ? `Intent: ${esc(s.intent)}`
-              : `Session: ${esc(s.summary || "(Untitled session)")}`
+              ? `Intent: ${s.intent}`
+              : `Session: ${s.summary || "(Untitled session)"}`
           }
         >
           {isRunning && s.intent ? `🤖 ${s.intent}` : s.summary || "(Untitled session)"}
@@ -78,7 +78,7 @@ export default function SessionTile({ session: s, processInfo, onOpenDetail }: S
         <div className="tile-subtitle">
           <span
             className="branch-badge"
-            data-tip={`Repository/Branch: ${s.repository ? esc(s.repository) + "/" : ""}${esc(s.branch)}`}
+            data-tip={`Repository/Branch: ${s.repository ? s.repository + "/" : ""}${s.branch}`}
           >
             ⎇ {s.repository ? s.repository + "/" : ""}{s.branch}
           </span>
@@ -87,14 +87,14 @@ export default function SessionTile({ session: s, processInfo, onOpenDetail }: S
 
       {/* Recent activity */}
       {s.recent_activity && (
-        <div className="tile-subtitle" style={{ color: "var(--accent)" }} data-tip={`Latest checkpoint: ${esc(s.recent_activity)}`}>
+        <div className="tile-subtitle" style={{ color: "var(--accent)" }} data-tip={`Latest checkpoint: ${s.recent_activity}`}>
           {s.recent_activity}
         </div>
       )}
 
       {/* Waiting context */}
       {isWaiting && processInfo!.waiting_context && (
-        <div className="tile-subtitle" style={{ color: "var(--yellow)" }} data-tip={`Waiting for: ${esc(processInfo!.waiting_context)}`}>
+        <div className="tile-subtitle" style={{ color: "var(--yellow)" }} data-tip={`Waiting for: ${processInfo!.waiting_context}`}>
           {processInfo!.waiting_context.substring(0, 80)}
           {processInfo!.waiting_context.length > 80 ? "..." : ""}
         </div>
@@ -120,7 +120,7 @@ export default function SessionTile({ session: s, processInfo, onOpenDetail }: S
           <span key={m} className="badge badge-mcp">🔌 {m}</span>
         ))}
         {isRunning && (
-          <span className="badge badge-focus" onClick={(e) => { stop(e); focusSession(s.id); }} data-tip="Focus terminal window">
+          <span className="badge badge-focus" onClick={(e) => { stop(e); focusSession(s.id).catch(() => {}); }} data-tip="Focus terminal window">
             👁️
           </span>
         )}
@@ -143,7 +143,7 @@ export default function SessionTile({ session: s, processInfo, onOpenDetail }: S
             className="tile-kill-x"
             onClick={() => {
               if (confirm(`Kill process PID ${processInfo!.pid}?`)) {
-                killSession(s.id);
+                killSession(s.id).catch(() => {});
               }
             }}
             data-tip="Kill process"

@@ -5,7 +5,6 @@
 import { useEffect, useState } from "react";
 import { fetchFiles } from "../api";
 import type { FileFrequency } from "../types";
-import { esc } from "../utils";
 
 export default function FilesTab() {
   const [files, setFiles] = useState<FileFrequency[] | null>(null);
@@ -47,7 +46,7 @@ export default function FilesTab() {
           return (
             <tr key={f.file_path} style={{ borderBottom: "1px solid var(--border)" }}>
               <td style={{ padding: "6px 8px", fontFamily: "monospace", color: "var(--text2)" }}>
-                {esc(shortPath)}
+                {shortPath}
               </td>
               <td style={{ padding: "6px 8px", color: "var(--text)" }}>
                 {f.session_count}

@@ -9,7 +9,6 @@
 import { useEffect, useState } from "react";
 import { fetchSessionDetail } from "../api";
 import type { SessionDetail as SessionDetailType } from "../types";
-import { esc } from "../utils";
 
 interface SessionDetailProps {
   sessionId: string;
@@ -148,7 +147,7 @@ function RecentOutputSection({ lines }: { lines: string[] }) {
       >
         {lines.map((line, i) => (
           <span key={i}>
-            {esc(line)}
+            {line}
             {"\n"}
           </span>
         ))}

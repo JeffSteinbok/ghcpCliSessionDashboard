@@ -14,6 +14,7 @@
 import {
   createContext,
   useContext,
+  useEffect,
   useReducer,
   type Dispatch,
   type ReactNode,
@@ -30,6 +31,18 @@ import type { Session, ProcessMap } from "../types";
 export type Tab = "active" | "previous" | "timeline" | "files";
 export type View = "tile" | "list";
 
+const VALID_VIEWS: View[] = ["tile", "list"];
+
+function safeParseStarred(): Set<string> {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_STARRED);
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw);
+    if (Array.isArray(arr)) return new Set(arr as string[]);
+  } catch { /* corrupt localStorage */ }
+  return new Set();
+}
+
 export interface AppState {
   sessions: Session[];
   processes: ProcessMap;
@@ -39,30 +52,29 @@ export interface AppState {
   expandedSessionIds: Set<string>;
   collapsedGroups: Set<string>;
   starredSessions: Set<string>;
-  loadedDetails: Record<string, string>;
   notificationsEnabled: boolean;
   consecutiveFailures: number;
+  lastFetchedAt: number | null;
   serverPid: number | null;
 }
 
 export function initialState(): AppState {
+  const rawView = localStorage.getItem(STORAGE_KEY_VIEW) as View | null;
+  const currentView: View = rawView && VALID_VIEWS.includes(rawView) ? rawView : "tile";
   return {
     sessions: [],
     processes: {},
     currentTab: "active",
-    currentView:
-      (localStorage.getItem(STORAGE_KEY_VIEW) as View) || "tile",
+    currentView,
     searchFilter: "",
     expandedSessionIds: new Set(),
     collapsedGroups: new Set(),
-    starredSessions: new Set(
-      JSON.parse(localStorage.getItem(STORAGE_KEY_STARRED) || "[]") as string[],
-    ),
-    loadedDetails: {},
+    starredSessions: safeParseStarred(),
     notificationsEnabled:
       typeof Notification !== "undefined" &&
       Notification.permission === "granted",
     consecutiveFailures: 0,
+    lastFetchedAt: null,
     serverPid: null,
   };
 }
@@ -78,7 +90,6 @@ export type Action =
   | { type: "TOGGLE_EXPAND"; sessionId: string }
   | { type: "TOGGLE_GROUP"; groupId: string }
   | { type: "TOGGLE_STAR"; sessionId: string }
-  | { type: "CACHE_DETAIL"; sessionId: string; html: string }
   | { type: "SET_NOTIFICATIONS"; enabled: boolean }
   | { type: "RECORD_FETCH_SUCCESS" }
   | { type: "RECORD_FETCH_FAILURE" }
@@ -98,7 +109,6 @@ export function appReducer(state: AppState, action: Action): AppState {
       return { ...state, currentTab: action.tab };
 
     case "SET_VIEW":
-      localStorage.setItem(STORAGE_KEY_VIEW, action.view);
       return { ...state, currentView: action.view };
 
     case "SET_SEARCH":
@@ -126,24 +136,14 @@ export function appReducer(state: AppState, action: Action): AppState {
       const next = new Set(state.starredSessions);
       if (next.has(action.sessionId)) next.delete(action.sessionId);
       else next.add(action.sessionId);
-      localStorage.setItem(STORAGE_KEY_STARRED, JSON.stringify([...next]));
       return { ...state, starredSessions: next };
     }
-
-    case "CACHE_DETAIL":
-      return {
-        ...state,
-        loadedDetails: {
-          ...state.loadedDetails,
-          [action.sessionId]: action.html,
-        },
-      };
 
     case "SET_NOTIFICATIONS":
       return { ...state, notificationsEnabled: action.enabled };
 
     case "RECORD_FETCH_SUCCESS":
-      return { ...state, consecutiveFailures: 0 };
+      return { ...state, consecutiveFailures: 0, lastFetchedAt: Date.now() };
 
     case "RECORD_FETCH_FAILURE":
       return {
@@ -172,6 +172,16 @@ const AppDispatchContext = createContext<Dispatch<Action> | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(appReducer, undefined, initialState);
+
+  // Sync localStorage outside the reducer (pure reducer, side effects here)
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_VIEW, state.currentView);
+  }, [state.currentView]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_STARRED, JSON.stringify([...state.starredSessions]));
+  }, [state.starredSessions]);
+
   return (
     <AppStateContext.Provider value={state}>
       <AppDispatchContext.Provider value={dispatch}>

@@ -36,22 +36,25 @@ export function useVersion(initialVersion: string) {
     await triggerUpdate();
     // Poll until the (new) server responds, then reload
     const start = Date.now();
-    const poll = setInterval(async () => {
+    const pollRef = { id: 0 as ReturnType<typeof setInterval> };
+    pollRef.id = setInterval(async () => {
       if (Date.now() - start > UPDATE_POLL_TIMEOUT_MS) {
-        clearInterval(poll);
+        clearInterval(pollRef.id);
         setUpdating(false);
         return;
       }
       try {
         const r = await fetch("/api/server-info");
         if (r.ok) {
-          clearInterval(poll);
+          clearInterval(pollRef.id);
           location.reload();
         }
       } catch {
         // Not up yet
       }
     }, UPDATE_POLL_INTERVAL_MS);
+    // Store for cleanup — though this is a one-shot user action
+    return () => clearInterval(pollRef.id);
   }, []);
 
   return { versionInfo, updating, doUpdate };

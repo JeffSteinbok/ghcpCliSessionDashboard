@@ -5,7 +5,7 @@
  */
 
 import type { Session, ProcessMap } from "../types";
-import { esc, STATE_LABELS, STATE_BADGE_CLASS } from "../utils";
+import { STATE_LABELS, STATE_BADGE_CLASS } from "../utils";
 import SessionDetail from "./SessionDetail";
 
 interface DetailModalProps {
@@ -37,7 +37,7 @@ export default function DetailModal({
     <div className="detail-modal-overlay open" onClick={handleOverlayClick}>
       <div className="detail-modal">
         <div className="detail-modal-header">
-          <h2>{esc(title)}</h2>
+          <h2>{title}</h2>
           <button className="close-x" onClick={onClose}>✕</button>
         </div>
 
@@ -45,18 +45,18 @@ export default function DetailModal({
         {s && (
           <div className="detail-section" style={{ marginBottom: 12 }}>
             {isRunning && s.intent && (
-              <div style={{ fontWeight: 600, marginBottom: 4 }}>🤖 {esc(s.intent)}</div>
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>🤖 {s.intent}</div>
             )}
             {s.branch && (
               <div style={{ marginBottom: 4 }}>
                 <span className="branch-badge">
-                  ⎇ {s.repository ? esc(s.repository) + "/" : ""}{esc(s.branch)}
+                  ⎇ {s.repository ? s.repository + "/" : ""}{s.branch}
                 </span>
               </div>
             )}
             {s.recent_activity && (
               <div style={{ color: "var(--accent)", fontSize: 13, marginBottom: 4 }}>
-                📝 {esc(s.recent_activity)}
+                📝 {s.recent_activity}
               </div>
             )}
             {isRunning && state && (
@@ -66,7 +66,7 @@ export default function DetailModal({
             )}
             {isWaiting && pinfo!.waiting_context && (
               <div style={{ color: "var(--yellow)", fontSize: 13, marginTop: 4 }}>
-                ⏳ {esc(pinfo!.waiting_context)}
+                ⏳ {pinfo!.waiting_context}
               </div>
             )}
           </div>

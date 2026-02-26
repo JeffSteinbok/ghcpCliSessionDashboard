@@ -79,10 +79,9 @@ export default function TabBar({ activeCount, previousCount }: TabBarProps) {
             {notificationsEnabled ? "🔔 Notifications On" : "🔕 Notifications Off"}
           </button>
           {popVisible && (
-            <div
-              className="notif-popover visible"
-              dangerouslySetInnerHTML={{ __html: popoverContent() }}
-            />
+            <div className="notif-popover visible">
+              {popoverContent()}
+            </div>
           )}
         </div>
 

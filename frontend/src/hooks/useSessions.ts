@@ -65,7 +65,11 @@ export function useSessions() {
           (info.state === "waiting"
             ? "Session is waiting for your input"
             : "Session is done and ready for next task");
-        new Notification(title, { body, tag: "copilot-" + sid });
+        try {
+          new Notification(title, { body, tag: "copilot-" + sid });
+        } catch {
+          // Notification permission may have been revoked
+        }
       }
     }
   };

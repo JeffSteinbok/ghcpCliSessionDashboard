@@ -7,7 +7,8 @@
  */
 
 import type { Session, ProcessInfo } from "../types";
-import { COPY_FEEDBACK_MS } from "../constants";import { esc, STATE_LABELS, STATE_BADGE_CLASS, listCardClass } from "../utils";
+import { COPY_FEEDBACK_MS } from "../constants";
+import { STATE_LABELS, STATE_BADGE_CLASS, listCardClass } from "../utils";
 import { useAppState, useAppDispatch } from "../state";
 import { focusSession, killSession } from "../api";
 import SessionDetail from "./SessionDetail";
@@ -36,16 +37,16 @@ export default function SessionCard({ session: s, processInfo }: SessionCardProp
   };
   const handleCopy = (e: React.MouseEvent, text: string) => {
     e.stopPropagation();
-    navigator.clipboard.writeText(text);
+    navigator.clipboard.writeText(text).catch(() => {});
   };
   const handleFocus = (e: React.MouseEvent) => {
     e.stopPropagation();
-    focusSession(s.id);
+    focusSession(s.id).catch(() => {});
   };
   const handleKill = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (processInfo?.pid && confirm(`Kill process PID ${processInfo.pid}?`)) {
-      killSession(s.id);
+      killSession(s.id).catch(() => {});
     }
   };
 
@@ -57,8 +58,8 @@ export default function SessionCard({ session: s, processInfo }: SessionCardProp
       <div style={{ display: "flex", gap: 10 }}>
         <div style={{ flex: 1, minWidth: 0, cursor: "pointer" }} onClick={handleToggle}>
           {/* Timestamp */}
-          <div className="session-time" data-tip={`Last updated: ${esc(s.updated_at)}`}>
-            started {esc(s.created_ago)}
+          <div className="session-time" data-tip={`Last updated: ${s.updated_at}`}>
+            started {s.created_ago}
           </div>
 
           {/* Title row */}
@@ -73,8 +74,8 @@ export default function SessionCard({ session: s, processInfo }: SessionCardProp
               className="session-title"
               data-tip={
                 isRunning && s.intent
-                  ? `Current intent: ${esc(s.intent)}`
-                  : `Session: ${esc(s.summary || "")}`
+                  ? `Current intent: ${s.intent}`
+                  : `Session: ${s.summary || ""}`
               }
             >
               {isRunning && s.intent ? `🤖 ${s.intent}` : s.summary || "(Untitled session)"}
@@ -86,21 +87,21 @@ export default function SessionCard({ session: s, processInfo }: SessionCardProp
 
           {/* CWD */}
           {s.cwd && (
-            <div className="cwd-text" data-tip={`Working directory: ${esc(s.cwd)}`}>
+            <div className="cwd-text" data-tip={`Working directory: ${s.cwd}`}>
               📁 {s.cwd}
             </div>
           )}
 
           {/* Recent activity */}
           {s.recent_activity && (
-            <div className="cwd-text" style={{ color: "var(--accent)" }} data-tip={`Latest checkpoint: ${esc(s.recent_activity)}`}>
+            <div className="cwd-text" style={{ color: "var(--accent)" }} data-tip={`Latest checkpoint: ${s.recent_activity}`}>
               📝 {s.recent_activity}
             </div>
           )}
 
           {/* Waiting context */}
           {isWaiting && processInfo!.waiting_context && (
-            <div className="cwd-text" style={{ color: "var(--yellow)" }} data-tip={`Waiting for: ${esc(processInfo!.waiting_context)}`}>
+            <div className="cwd-text" style={{ color: "var(--yellow)" }} data-tip={`Waiting for: ${processInfo!.waiting_context}`}>
               ⏳ {processInfo!.waiting_context}
             </div>
           )}
@@ -118,7 +119,7 @@ export default function SessionCard({ session: s, processInfo }: SessionCardProp
               </span>
             )}
             {s.branch && (
-              <span className="branch-badge" data-tip={`Branch: ${s.repository ? esc(s.repository) + "/" : ""}${esc(s.branch)}`}>
+              <span className="branch-badge" data-tip={`Branch: ${s.repository ? s.repository + "/" : ""}${s.branch}`}>
                 ⎇ {s.repository ? s.repository + "/" : ""}{s.branch}
               </span>
             )}
@@ -131,7 +132,7 @@ export default function SessionCard({ session: s, processInfo }: SessionCardProp
               </span>
             )}
             {s.mcp_servers?.map((m) => (
-              <span key={m} className="badge badge-mcp" data-tip={`MCP server: ${esc(m)}`}>
+              <span key={m} className="badge badge-mcp" data-tip={`MCP server: ${m}`}>
                 🔌 {m}
               </span>
             ))}
@@ -148,7 +149,7 @@ export default function SessionCard({ session: s, processInfo }: SessionCardProp
 
       {/* Restart command row */}
       <div className="restart-row">
-        <span className="restart-cmd" data-tip={`Resume command: ${esc(s.restart_cmd)}`}>
+        <span className="restart-cmd" data-tip={`Resume command: ${s.restart_cmd}`}>
           {s.restart_cmd}
         </span>
         <CopyButton text={s.restart_cmd} label="📋 Copy" onCopy={handleCopy} />
