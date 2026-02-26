@@ -596,9 +596,9 @@ class TestGetSessionStateAdditional:
 
     def test_counts_subagent_bg_tasks(self, tmp_path):
         events = [
-            {"type": "subagent.started", "data": {}},
-            {"type": "subagent.started", "data": {}},
-            {"type": "subagent.completed", "data": {}},
+            {"type": "subagent.started", "data": {"toolCallId": "sa1", "agentName": "explore"}},
+            {"type": "subagent.started", "data": {"toolCallId": "sa2", "agentName": "task"}},
+            {"type": "subagent.completed", "data": {"toolCallId": "sa1"}},
             {"type": "user.message", "data": {"message": "next"}},
         ]
         self._write_events(tmp_path, "sess-bg", events)
@@ -939,7 +939,7 @@ class TestGetRunningSessions:
             patch(
                 "src.process_tracker._get_session_state",
                 return_value=SessionState(
-                    state="unknown", waiting_context="", bg_tasks=0
+                    state="unknown", waiting_context="", bg_tasks=0, bg_task_list=[]
                 ),
             ),
         ):
@@ -976,7 +976,7 @@ class TestGetRunningSessions:
 
     def test_enriches_sessions_with_state(self):
         fake_info = ProcessInfo(pid=100)
-        state = SessionState(state="waiting", waiting_context="Pick one", bg_tasks=2)
+        state = SessionState(state="waiting", waiting_context="Pick one", bg_tasks=2, bg_task_list=[])
 
         with (
             patch("src.process_tracker.sys.platform", "darwin"),

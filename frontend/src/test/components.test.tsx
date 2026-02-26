@@ -49,6 +49,7 @@ function makeProcess(overrides: Partial<ProcessInfo> = {}): ProcessInfo {
     state: "working",
     waiting_context: "",
     bg_tasks: 0,
+    bg_task_list: [],
     mcp_servers: [],
     ...overrides,
   };

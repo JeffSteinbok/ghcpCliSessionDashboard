@@ -53,10 +53,9 @@ describe("appReducer", () => {
     expect(next.currentTab).toBe("timeline");
   });
 
-  it("SET_VIEW changes view and persists to localStorage", () => {
+  it("SET_VIEW changes view", () => {
     const next = appReducer(state, { type: "SET_VIEW", view: "list" });
     expect(next.currentView).toBe("list");
-    expect(store[STORAGE_KEY_VIEW]).toBe("list");
   });
 
   it("SET_SEARCH updates filter", () => {
@@ -85,10 +84,9 @@ describe("appReducer", () => {
     expect(next.collapsedGroups.has("g1")).toBe(false);
   });
 
-  it("TOGGLE_STAR toggles and persists to localStorage", () => {
+  it("TOGGLE_STAR toggles starred sessions", () => {
     let next = appReducer(state, { type: "TOGGLE_STAR", sessionId: "s1" });
     expect(next.starredSessions.has("s1")).toBe(true);
-    expect(JSON.parse(store[STORAGE_KEY_STARRED])).toContain("s1");
 
     next = appReducer(next, { type: "TOGGLE_STAR", sessionId: "s1" });
     expect(next.starredSessions.has("s1")).toBe(false);

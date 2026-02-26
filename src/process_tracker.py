@@ -5,6 +5,7 @@ Also detects session state (waiting/working), yolo mode, and MCP servers.
 """
 
 import json
+import logging
 import os
 import re
 import subprocess
@@ -34,7 +35,12 @@ from .constants import (
 )
 from .models import BackgroundTask, EventData, ProcessInfo, RunningCache, SessionState
 
+logger = logging.getLogger(__name__)
+
 EVENTS_DIR = SESSION_STATE_DIR
+
+# Tool names that indicate "waiting for user input"
+WAITING_TOOLS = frozenset({"ask_user", "ask_permission"})
 
 # ---------------------------------------------------------------------------
 # Caching layer
@@ -62,14 +68,18 @@ def _read_recent_events(session_id, count=10):
             f.seek(read_from)
             chunk = f.read().decode("utf-8", errors="replace")
         raw_lines = [ln.strip() for ln in chunk.split("\n") if ln.strip()]
+        # When seeking mid-file, the first line is likely truncated — discard it
+        if read_from > 0 and raw_lines:
+            raw_lines = raw_lines[1:]
         events = []
         for line in raw_lines[-count:]:
             try:
                 events.append(json.loads(line))
-            except Exception:
-                pass
+            except json.JSONDecodeError:
+                logger.debug("Skipping malformed event line in %s", session_id)
         return events
-    except Exception:
+    except Exception as e:
+        logger.debug("Error reading events for %s: %s", session_id, e)
         return []
 
 
@@ -113,8 +123,8 @@ def _get_session_state(session_id) -> SessionState:
                         pass
             bg = len(started)
             bg_task_list = list(started.values())
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Error counting subagents for %s: %s", session_id, e)
 
     # Track pending tool calls from recent events
     pending_tools = {}  # toolCallId -> event data
@@ -133,7 +143,7 @@ def _get_session_state(session_id) -> SessionState:
     has_pending_work = False
     for _tcid, data in pending_tools.items():
         tool = data.get("toolName", "")
-        if tool in ("ask_user", "ask_permission"):
+        if tool in WAITING_TOOLS:
             args = data.get("arguments", {})
             question = args.get("question", "")
             choices = args.get("choices", [])
@@ -181,7 +191,7 @@ def _get_session_state(session_id) -> SessionState:
         )
     if etype == "tool.execution_start":
         tool = data.get("toolName", "")
-        if tool in ("ask_user", "ask_permission"):
+        if tool in WAITING_TOOLS:
             args = data.get("arguments", {})
             return SessionState(
                 state="waiting",
@@ -223,7 +233,8 @@ def _parse_mcp_servers(cmdline):
             data = json.load(f)
         servers = data.get("mcpServers", {})
         return list(servers.keys())
-    except Exception:
+    except Exception as e:
+        logger.debug("Error parsing MCP config %s: %s", config_path, e)
         return []
 
 
@@ -269,7 +280,8 @@ def _match_process_to_session(creation_date_str):
             if delta < best_delta:
                 best_delta = delta
                 best_sid = sid
-        except Exception:
+        except Exception as e:
+            logger.debug("Error matching session %s: %s", sid, e)
             continue
 
     return best_sid
@@ -294,7 +306,11 @@ def _get_running_sessions_windows() -> dict[str, ProcessInfo]:
     if result.returncode != 0 or not result.stdout.strip():
         return {}
 
-    data = json.loads(result.stdout)
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError as e:
+        logger.debug("Failed to parse PowerShell output: %s", e)
+        return {}
     if isinstance(data, dict):
         data = [data]
 
@@ -379,8 +395,11 @@ def _get_running_sessions_unix() -> dict[str, ProcessInfo]:
         parts_line = line.split(None, 7)  # pid ppid lstart(5 fields) command
         if len(parts_line) < 8:
             continue
-        pid = int(parts_line[0])
-        ppid = int(parts_line[1])
+        try:
+            pid = int(parts_line[0])
+            ppid = int(parts_line[1])
+        except (ValueError, IndexError):
+            continue
         # lstart is like "Mon Feb 23 20:56:31 2026" (5 tokens)
         lstart_str = " ".join(parts_line[2:7])
         cmd = parts_line[7]
@@ -410,8 +429,8 @@ def _get_running_sessions_unix() -> dict[str, ProcessInfo]:
                     terminal_name = pinfo[1].strip()
                     break
                 cur_ppid = int(pinfo[0])
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Error walking process tree from PID %d: %s", ppid, e)
 
         proc_info = ProcessInfo(
             pid=pid,
@@ -438,8 +457,8 @@ def _get_running_sessions_unix() -> dict[str, ProcessInfo]:
             sid = _match_process_to_session(proc_time.isoformat())
             if sid and sid not in sessions:
                 sessions[sid] = proc_info
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Error matching process to session by timestamp: %s", e)
 
     return sessions
 
@@ -473,6 +492,7 @@ def get_running_sessions() -> dict[str, ProcessInfo]:
             return sessions
         except Exception as e:
             print(f"[process_tracker] Error scanning processes: {e}")
+            logger.warning("Error scanning processes: %s", e)
             return _running_cache.data
 
 
@@ -505,7 +525,7 @@ def _read_event_data(session_id) -> EventData:
                         result.cwd = ctx.get("cwd", "")
                         result.branch = ctx.get("branch", "")
                         result.repository = ctx.get("repository", "")
-                    except Exception:
+                    except json.JSONDecodeError:
                         pass
                     continue
 
@@ -521,7 +541,7 @@ def _read_event_data(session_id) -> EventData:
                         elif msg:
                             result.mcp_servers = [msg]
                         mcp_found = True
-                    except Exception:
+                    except json.JSONDecodeError:
                         pass
                     continue
 
@@ -534,7 +554,7 @@ def _read_event_data(session_id) -> EventData:
                         intent = args.get("intent", "")
                         if intent:
                             last_intent = intent
-                    except Exception:
+                    except (json.JSONDecodeError, TypeError):
                         pass
                     continue
 
@@ -547,8 +567,8 @@ def _read_event_data(session_id) -> EventData:
         result.tool_calls = tool_count
         result.subagent_runs = sub_count
         result.intent = last_intent
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Error reading event data for %s: %s", session_id, e)
 
     return result
 
@@ -571,8 +591,8 @@ def _get_live_branch(cwd: str) -> str:
             line = f.read().strip()
         if line.startswith("ref: refs/heads/"):
             return line[len("ref: refs/heads/") :]
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Error reading git HEAD for %s: %s", cwd, e)
     return ""
 
 
@@ -607,12 +627,13 @@ def get_session_mcp_servers(session_id):
 def get_recent_output(session_id, max_lines=10):
     """
     Extract the last N lines of meaningful tool output from events.jsonl.
+    Keeps only the output from the *last* tool completion event (intentional).
     """
     events_file = os.path.join(EVENTS_DIR, session_id, "events.jsonl")
     if not os.path.exists(events_file):
         return []
     try:
-        output_lines = []
+        output_lines: list[str] = []
         with open(events_file, "rb") as f:
             f.seek(0, 2)
             size = f.tell()
@@ -631,12 +652,14 @@ def get_recent_output(session_id, max_lines=10):
                 content = event.get("data", {}).get("result", {}).get("content", "")
                 if not content or len(content) < 5 or content.strip() == "Intent logged":
                     continue
+                # Intentionally replace: we want the last tool's output only
                 output_lines = content.strip().split("\n")
-            except Exception:
+            except json.JSONDecodeError:
                 continue
 
         return output_lines[-max_lines:] if output_lines else []
-    except Exception:
+    except Exception as e:
+        logger.debug("Error reading recent output for %s: %s", session_id, e)
         return []
 
 
@@ -683,9 +706,7 @@ def _focus_session_window_windows(session_id, sessions: dict[str, ProcessInfo]):
                     timeout=PARENT_LOOKUP_TIMEOUT,
                     check=False,
                 )
-                import json as _json
-
-                p = _json.loads(procs.stdout)
+                p = json.loads(procs.stdout)
                 if isinstance(p, list):
                     p = p[0]
                 chain.append(f"  PID {p.get('ProcessId')} {p.get('Name')}")
@@ -764,6 +785,11 @@ def _focus_session_window_macos(session_id, sessions: dict[str, ProcessInfo]):
 
     if not app_name:
         return False, "Could not determine terminal application."
+
+    # Validate app_name is in our known-safe allowlist to prevent injection
+    allowed = set(MACOS_APP_NAMES.values()) | set(MACOS_FALLBACK_TERMINALS)
+    if app_name not in allowed:
+        return False, f"Unknown terminal application: {app_name}"
 
     try:
         script = f'tell application "{app_name}" to activate'

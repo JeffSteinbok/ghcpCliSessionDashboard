@@ -2,7 +2,7 @@
  * Hook tests — use renderHook from @testing-library/react.
  */
 
-import { renderHook, act } from "@testing-library/react";
+import { renderHook, act, render } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { STORAGE_KEY_MODE, STORAGE_KEY_PALETTE } from "../constants";
 
@@ -236,45 +236,47 @@ describe("useNotifications", () => {
     expect(requestMock).toHaveBeenCalled();
   });
 
-  it("popoverContent returns not-supported HTML when Notification is missing", () => {
+  it("popoverContent returns not-supported content when Notification is missing", () => {
     const savedNotif = (globalThis as Record<string, unknown>).Notification;
     delete (globalThis as Record<string, unknown>).Notification;
     const { result } = renderHook(() => useNotifications(), { wrapper });
-    const html = result.current.popoverContent();
-    expect(html).toContain("Not supported");
+    const node = result.current.popoverContent();
+    const { container } = render(createElement("div", null, node));
+    expect(container.textContent).toContain("Not supported");
     (globalThis as Record<string, unknown>).Notification = savedNotif;
   });
 
-  it("popoverContent returns granted-on HTML when notifications enabled", () => {
+  it("popoverContent returns granted-on content when notifications enabled", () => {
     const NotifMock = vi.fn();
     Object.defineProperty(NotifMock, "permission", { value: "granted", configurable: true });
     (NotifMock as unknown as Record<string, unknown>).requestPermission = vi.fn();
     Object.defineProperty(globalThis, "Notification", { value: NotifMock, writable: true, configurable: true });
-    // Need to start with enabled = true; this depends on the AppProvider initial state
-    // Since permission is "granted", initialState sets notificationsEnabled = true
     const { result } = renderHook(() => useNotifications(), { wrapper });
-    const html = result.current.popoverContent();
-    expect(html).toContain("Notifications");
+    const node = result.current.popoverContent();
+    const { container } = render(createElement("div", null, node));
+    expect(container.textContent).toContain("Notifications");
   });
 
-  it("popoverContent returns denied HTML when permission is denied", () => {
+  it("popoverContent returns denied content when permission is denied", () => {
     const NotifMock = vi.fn();
     Object.defineProperty(NotifMock, "permission", { value: "denied", configurable: true });
     (NotifMock as unknown as Record<string, unknown>).requestPermission = vi.fn();
     Object.defineProperty(globalThis, "Notification", { value: NotifMock, writable: true, configurable: true });
     const { result } = renderHook(() => useNotifications(), { wrapper });
-    const html = result.current.popoverContent();
-    expect(html).toContain("blocked");
+    const node = result.current.popoverContent();
+    const { container } = render(createElement("div", null, node));
+    expect(container.textContent).toContain("blocked");
   });
 
-  it("popoverContent returns enable HTML when permission is default", () => {
+  it("popoverContent returns enable content when permission is default", () => {
     const NotifMock = vi.fn();
     Object.defineProperty(NotifMock, "permission", { value: "default", configurable: true });
     (NotifMock as unknown as Record<string, unknown>).requestPermission = vi.fn();
     Object.defineProperty(globalThis, "Notification", { value: NotifMock, writable: true, configurable: true });
     const { result } = renderHook(() => useNotifications(), { wrapper });
-    const html = result.current.popoverContent();
-    expect(html).toContain("Enable notifications");
+    const node = result.current.popoverContent();
+    const { container } = render(createElement("div", null, node));
+    expect(container.textContent).toContain("Enable notifications");
   });
 });
 

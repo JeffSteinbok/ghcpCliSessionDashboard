@@ -388,14 +388,14 @@ class TestApiKill:
         assert resp.json()["success"] is False
 
     def test_no_pid_available(self, client):
-        running = {"sess-1": ProcessInfo(pid=0, state="working")}
+        running = {"sess-1": ProcessInfo(pid=0, state="working", cmdline="copilot --resume sess-1")}
         with patch("src.dashboard_api.get_running_sessions", return_value=running):
             resp = client.post("/api/kill/sess-1")
         assert resp.status_code == 404
         assert resp.json()["success"] is False
 
     def test_success_unix(self, client):
-        running = {"sess-1": ProcessInfo(pid=1234, state="working")}
+        running = {"sess-1": ProcessInfo(pid=1234, state="working", cmdline="copilot --resume sess-1")}
         with (
             patch("src.dashboard_api.get_running_sessions", return_value=running),
             patch("src.dashboard_api.sys.platform", "linux"),
@@ -409,7 +409,7 @@ class TestApiKill:
         mock_kill.assert_called_once_with(1234, signal.SIGTERM)
 
     def test_success_windows(self, client):
-        running = {"sess-1": ProcessInfo(pid=5678, state="working")}
+        running = {"sess-1": ProcessInfo(pid=5678, state="working", cmdline="copilot --resume sess-1")}
         with (
             patch("src.dashboard_api.get_running_sessions", return_value=running),
             patch("src.dashboard_api.sys.platform", "win32"),
@@ -424,7 +424,7 @@ class TestApiKill:
         assert str(5678) in args
 
     def test_kill_failure(self, client):
-        running = {"sess-1": ProcessInfo(pid=1234, state="working")}
+        running = {"sess-1": ProcessInfo(pid=1234, state="working", cmdline="copilot --resume sess-1")}
         with (
             patch("src.dashboard_api.get_running_sessions", return_value=running),
             patch("src.dashboard_api.sys.platform", "linux"),

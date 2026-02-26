@@ -18,10 +18,17 @@ export interface ThemeState {
   palette: Palette;
 }
 
+const VALID_MODES: Mode[] = ["dark", "light"];
+const VALID_PALETTES: Palette[] = [
+  "default", "pink", "ocean", "forest", "sunset", "mono", "neon", "slate", "rosegold",
+];
+
 function readTheme(): ThemeState {
+  const rawMode = localStorage.getItem(STORAGE_KEY_MODE) as Mode | null;
+  const rawPalette = localStorage.getItem(STORAGE_KEY_PALETTE) as Palette | null;
   return {
-    mode: (localStorage.getItem(STORAGE_KEY_MODE) as Mode) || "dark",
-    palette: (localStorage.getItem(STORAGE_KEY_PALETTE) as Palette) || "default",
+    mode: rawMode && VALID_MODES.includes(rawMode) ? rawMode : "dark",
+    palette: rawPalette && VALID_PALETTES.includes(rawPalette) ? rawPalette : "default",
   };
 }
 

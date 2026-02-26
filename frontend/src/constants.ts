@@ -64,6 +64,25 @@ export const THEME_PALETTES = [
   "rosegold",
 ] as const;
 
+/** Emoji-labelled palette options for the UI selector, derived from THEME_PALETTES. */
+const PALETTE_EMOJI: Record<string, string> = {
+  default: "🌈",
+  pink: "🌸",
+  ocean: "🌊",
+  forest: "🌳",
+  sunset: "🌅",
+  mono: "⚫",
+  neon: "⚡",
+  slate: "🩶",
+  rosegold: "💫",
+};
+
+export const PALETTE_OPTIONS: { value: (typeof THEME_PALETTES)[number]; label: string }[] =
+  THEME_PALETTES.map((p) => ({
+    value: p,
+    label: `${PALETTE_EMOJI[p] ?? ""} ${p.charAt(0).toUpperCase() + p.slice(1)}`,
+  }));
+
 // ── State display labels & CSS mappings ────────────────────────────────────
 
 /** Human-readable labels for session states. */

@@ -11,12 +11,14 @@ Serves a real-time dashboard of all Copilot CLI sessions with:
 """
 
 import json
+import logging
 import os
 import re
 import signal
 import sqlite3
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 from collections import Counter
@@ -57,6 +59,11 @@ from .schemas import (
     VersionResponse,
 )
 
+logger = logging.getLogger(__name__)
+
+# Strict pattern for session IDs — only UUID-like strings allowed
+_SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
+
 # ── App setup ────────────────────────────────────────────────────────────────
 
 PKG_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -76,9 +83,17 @@ if os.path.isdir(STATIC_DIR):
 
 DB_PATH = SESSION_STORE_DB
 _version_cache = VersionCache()
+_version_lock = threading.Lock()
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
+
+
+def _validate_session_id(session_id: str) -> str | None:
+    """Return an error message if session_id is invalid, else None."""
+    if not _SESSION_ID_RE.match(session_id):
+        return "Invalid session ID format"
+    return None
 
 
 def get_db() -> sqlite3.Connection:
@@ -245,8 +260,10 @@ def api_sessions():
         db = get_db()
     except FileNotFoundError as e:
         return JSONResponse({"error": str(e)}, status_code=503)
-    rows = db.execute(_SESSIONS_QUERY).fetchall()
-    db.close()
+    try:
+        rows = db.execute(_SESSIONS_QUERY).fetchall()
+    finally:
+        db.close()
 
     running = get_running_sessions()
     result = []
@@ -261,29 +278,34 @@ def api_sessions():
 @app.get("/api/session/{session_id}", response_model=SessionDetailResponse)
 def api_session_detail(session_id: str):
     """Get detailed info for a single session."""
+    err = _validate_session_id(session_id)
+    if err:
+        return JSONResponse({"error": err}, status_code=400)
     try:
         db = get_db()
     except FileNotFoundError as e:
         return JSONResponse({"error": str(e)}, status_code=503)
-    checkpoints = db.execute(
-        "SELECT checkpoint_number, title, overview, next_steps "
-        "FROM checkpoints WHERE session_id = ? ORDER BY checkpoint_number",
-        (session_id,),
-    ).fetchall()
-    refs = db.execute(
-        "SELECT ref_type, ref_value FROM session_refs WHERE session_id = ?",
-        (session_id,),
-    ).fetchall()
-    turns = db.execute(
-        "SELECT turn_index, user_message, assistant_response "
-        "FROM turns WHERE session_id = ? ORDER BY turn_index DESC LIMIT 10",
-        (session_id,),
-    ).fetchall()
-    files = db.execute(
-        "SELECT DISTINCT file_path FROM session_files WHERE session_id = ? ORDER BY file_path",
-        (session_id,),
-    ).fetchall()
-    db.close()
+    try:
+        checkpoints = db.execute(
+            "SELECT checkpoint_number, title, overview, next_steps "
+            "FROM checkpoints WHERE session_id = ? ORDER BY checkpoint_number",
+            (session_id,),
+        ).fetchall()
+        refs = db.execute(
+            "SELECT ref_type, ref_value FROM session_refs WHERE session_id = ?",
+            (session_id,),
+        ).fetchall()
+        turns = db.execute(
+            "SELECT turn_index, user_message, assistant_response "
+            "FROM turns WHERE session_id = ? ORDER BY turn_index DESC LIMIT 10",
+            (session_id,),
+        ).fetchall()
+        files = db.execute(
+            "SELECT DISTINCT file_path FROM session_files WHERE session_id = ? ORDER BY file_path",
+            (session_id,),
+        ).fetchall()
+    finally:
+        db.close()
 
     # Read tool counts from events.jsonl
     events_file = os.path.join(SESSION_STATE_DIR, session_id, "events.jsonl")
@@ -322,13 +344,15 @@ def api_files():
         db = get_db()
     except FileNotFoundError as e:
         return JSONResponse({"error": str(e)}, status_code=503)
-    rows = db.execute("""
-        SELECT sf.file_path, COUNT(DISTINCT sf.session_id) as session_count,
-        GROUP_CONCAT(DISTINCT sf.session_id) as session_ids
-        FROM session_files sf GROUP BY sf.file_path
-        ORDER BY session_count DESC LIMIT 100
-    """).fetchall()
-    db.close()
+    try:
+        rows = db.execute("""
+            SELECT sf.file_path, COUNT(DISTINCT sf.session_id) as session_count,
+            GROUP_CONCAT(DISTINCT sf.session_id) as session_ids
+            FROM session_files sf GROUP BY sf.file_path
+            ORDER BY session_count DESC LIMIT 100
+        """).fetchall()
+    finally:
+        db.close()
     return [dict(r) for r in rows]
 
 
@@ -338,18 +362,28 @@ def api_processes():
     return {sid: asdict(info) for sid, info in get_running_sessions().items()}
 
 
-@app.post("/api/kill/{session_id:path}", response_model=ActionResponse)
+@app.post("/api/kill/{session_id}", response_model=ActionResponse)
 def api_kill(session_id: str):
     """Kill the process for a running session."""
+    err = _validate_session_id(session_id)
+    if err:
+        return JSONResponse({"error": err}, status_code=400)
     running = get_running_sessions()
     if session_id not in running:
         return JSONResponse(
             {"success": False, "message": "Session not found among running processes"},
             status_code=404,
         )
-    pid = running[session_id].pid
+    info = running[session_id]
+    pid = info.pid
     if not pid:
         return JSONResponse({"success": False, "message": "PID not available"}, status_code=404)
+    # Only kill processes whose command line contains "copilot"
+    if "copilot" not in info.cmdline.lower():
+        return JSONResponse(
+            {"success": False, "message": "Process is not a recognized Copilot process"},
+            status_code=403,
+        )
     try:
         if sys.platform == "win32":
             subprocess.run(["taskkill", "/F", "/PID", str(pid)], check=True, capture_output=True)
@@ -363,6 +397,9 @@ def api_kill(session_id: str):
 @app.post("/api/focus/{session_id}", response_model=ActionResponse)
 def api_focus(session_id: str):
     """Focus the terminal window for a running session."""
+    err = _validate_session_id(session_id)
+    if err:
+        return JSONResponse({"error": err}, status_code=400)
     success, message = focus_session_window(session_id)
     return {"success": success, "message": message}
 
@@ -370,20 +407,27 @@ def api_focus(session_id: str):
 @app.get("/api/server-info", response_model=ServerInfoResponse)
 def server_info(request: Request):
     """Return server metadata including PID."""
-    host = request.headers.get("host", "localhost:5111")
-    return {"pid": os.getpid(), "port": host.split(":")[-1]}
+    # Derive port from the ASGI server scope rather than trusting the Host header
+    scope = request.scope
+    server = scope.get("server")
+    port = str(server[1]) if server and len(server) >= 2 else "5111"
+    return {"pid": os.getpid(), "port": port}
 
 
 @app.get("/api/version", response_model=VersionResponse)
 def api_version():
     """Return current version and check PyPI for the latest release."""
     now = time.monotonic()
-    if _version_cache.latest is not None and now - _version_cache.checked_at < VERSION_CACHE_TTL:
-        return {
-            "current": __version__,
-            "latest": _version_cache.latest,
-            "update_available": _version_cache.update_available,
-        }
+    with _version_lock:
+        if (
+            _version_cache.latest is not None
+            and now - _version_cache.checked_at < VERSION_CACHE_TTL
+        ):
+            return {
+                "current": __version__,
+                "latest": _version_cache.latest,
+                "update_available": _version_cache.update_available,
+            }
 
     try:
         with urllib.request.urlopen(PYPI_PACKAGE_URL, timeout=PYPI_FETCH_TIMEOUT) as resp:
@@ -403,10 +447,8 @@ def api_version():
             return bool(re.search(r"(a|b|rc|dev)\d*$", v))
 
         if _is_prerelease(__version__):
-            # On a pre-release: consider all versions (including pre-releases)
             latest = max(data.get("releases", {}), key=_ver, default=__version__)
         else:
-            # On stable: only offer stable upgrades
             latest = data["info"]["version"]
 
         update_available = _ver(latest) > _ver(__version__)
@@ -414,9 +456,10 @@ def api_version():
         latest = __version__
         update_available = False
 
-    _version_cache.latest = latest
-    _version_cache.update_available = update_available
-    _version_cache.checked_at = now
+    with _version_lock:
+        _version_cache.latest = latest
+        _version_cache.update_available = update_available
+        _version_cache.checked_at = now
     return {
         "current": __version__,
         "latest": latest,
@@ -427,8 +470,9 @@ def api_version():
 @app.post("/api/update", response_model=ActionResponse)
 def api_update(request: Request):
     """Spawn a detached subprocess to pip-upgrade the package and restart."""
-    host = request.headers.get("host", "localhost:5111")
-    port = host.split(":")[-1]
+    scope = request.scope
+    server = scope.get("server")
+    port = str(server[1]) if server and len(server) >= 2 else "5111"
     server_pid = os.getpid()
 
     script_lines = [

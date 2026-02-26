@@ -108,6 +108,7 @@ export function sortStarredFirst(
   sessions: Session[],
   starred: Set<string>,
 ): Session[] {
+  if (starred.size === 0) return sessions;
   return [...sessions].sort(
     (a, b) =>
       (starred.has(b.id) ? 1 : 0) - (starred.has(a.id) ? 1 : 0),

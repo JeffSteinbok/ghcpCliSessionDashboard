@@ -6,19 +6,7 @@
 import { useTheme, useVersion } from "../hooks";
 import type { Palette } from "../hooks";
 import { useAppState } from "../state";
-
-/** All available palettes for the theme selector. */
-const PALETTES: { value: Palette; label: string }[] = [
-  { value: "default", label: "🌈 Default" },
-  { value: "pink", label: "🌸 Pink" },
-  { value: "ocean", label: "🌊 Ocean" },
-  { value: "forest", label: "🌳 Forest" },
-  { value: "sunset", label: "🌅 Sunset" },
-  { value: "mono", label: "⚫ Mono" },
-  { value: "neon", label: "⚡ Neon" },
-  { value: "slate", label: "🩶 Slate" },
-  { value: "rosegold", label: "💫 Rose Gold" },
-];
+import { PALETTE_OPTIONS } from "../constants";
 
 interface HeaderProps {
   /** Version string from the Python package, e.g. "1.2.3". */
@@ -125,7 +113,7 @@ export default function Header({
             value={theme.palette}
             onChange={(e) => setPalette(e.target.value as Palette)}
           >
-            {PALETTES.map((p) => (
+            {PALETTE_OPTIONS.map((p) => (
               <option key={p.value} value={p.value}>
                 {p.label}
               </option>

@@ -8,7 +8,6 @@
 import { useMemo } from "react";
 import { PREVIOUS_SESSION_WINDOW_MS } from "../constants";
 import type { Session, ProcessMap } from "../types";
-import { esc } from "../utils";
 
 interface TimelineProps {
   sessions: Session[];
@@ -144,7 +143,7 @@ export default function Timeline({ sessions, processes, now, onOpenDetail }: Tim
             }}
             title={s.summary || ""}
           >
-            {esc(label)}
+            {label}
           </div>
 
           <div
@@ -169,7 +168,7 @@ export default function Timeline({ sessions, processes, now, onOpenDetail }: Tim
                 minWidth: 4,
                 opacity: 0.85,
               }}
-              title={`${esc(s.summary || "")} — ${esc(s.created_ago)}`}
+              title={`${s.summary || ""} — ${s.created_ago}`}
             />
           </div>
         </div>
