@@ -31,5 +31,5 @@ python -m src.session_dashboard _serve --port 5112
 
 Use `mode="async"`, `detach=true`. Confirm with `read_powershell` — look for `* Running on http://127.0.0.1:5112` in the log file.
 
-**Key: use `_serve` not `start`.** The `start` subcommand spawns a child then exits — the child gets orphaned when the shell dies. `_serve` runs Flask directly and survives as a detached process.
+**Key: use `_serve` not `start`.** The `start` subcommand spawns a child then exits — the child gets orphaned when the shell dies. `_serve` runs uvicorn directly and survives as a detached process.
 

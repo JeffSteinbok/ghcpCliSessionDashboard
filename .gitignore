@@ -47,3 +47,7 @@ Thumbs.db
 # Test coverage
 .coverage
 htmlcov/
+
+# Frontend
+node_modules/
+src/static/dist/

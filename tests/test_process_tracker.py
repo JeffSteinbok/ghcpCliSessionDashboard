@@ -135,8 +135,8 @@ class TestGetSessionState:
 
     def test_no_events_returns_unknown(self, tmp_path):
         with patch("src.process_tracker.EVENTS_DIR", str(tmp_path)):
-            state, ctx, bg = _get_session_state("nonexistent")
-        assert state == "unknown"
+            result = _get_session_state("nonexistent")
+        assert result["state"] == "unknown"
 
     def test_ask_user_tool_returns_waiting(self, tmp_path):
         events = [
@@ -151,10 +151,10 @@ class TestGetSessionState:
         ]
         self._write_events(tmp_path, "sess-1", events)
         with patch("src.process_tracker.EVENTS_DIR", str(tmp_path)):
-            state, ctx, _bg = _get_session_state("sess-1")
-        assert state == "waiting"
-        assert "What should I do?" in ctx
-        assert "A" in ctx
+            result = _get_session_state("sess-1")
+        assert result["state"] == "waiting"
+        assert "What should I do?" in result["waiting_context"]
+        assert "A" in result["waiting_context"]
 
     def test_pending_tool_returns_working(self, tmp_path):
         events = [
@@ -165,8 +165,8 @@ class TestGetSessionState:
         ]
         self._write_events(tmp_path, "sess-1", events)
         with patch("src.process_tracker.EVENTS_DIR", str(tmp_path)):
-            state, _ctx, _bg = _get_session_state("sess-1")
-        assert state == "working"
+            result = _get_session_state("sess-1")
+        assert result["state"] == "working"
 
     def test_completed_tool_returns_idle(self, tmp_path):
         events = [
@@ -182,22 +182,22 @@ class TestGetSessionState:
         ]
         self._write_events(tmp_path, "sess-1", events)
         with patch("src.process_tracker.EVENTS_DIR", str(tmp_path)):
-            state, _ctx, _bg = _get_session_state("sess-1")
-        assert state == "idle"
+            result = _get_session_state("sess-1")
+        assert result["state"] == "idle"
 
     def test_user_message_returns_thinking(self, tmp_path):
         events = [{"type": "user.message", "data": {"message": "do something"}}]
         self._write_events(tmp_path, "sess-1", events)
         with patch("src.process_tracker.EVENTS_DIR", str(tmp_path)):
-            state, _ctx, _bg = _get_session_state("sess-1")
-        assert state == "thinking"
+            result = _get_session_state("sess-1")
+        assert result["state"] == "thinking"
 
     def test_subagent_started_returns_working(self, tmp_path):
         events = [{"type": "subagent.started", "data": {}}]
         self._write_events(tmp_path, "sess-1", events)
         with patch("src.process_tracker.EVENTS_DIR", str(tmp_path)):
-            state, _ctx, _bg = _get_session_state("sess-1")
-        assert state == "working"
+            result = _get_session_state("sess-1")
+        assert result["state"] == "working"
 
     def test_stale_pending_tool_returns_waiting(self, tmp_path):
         old_time = (datetime.now(UTC) - timedelta(seconds=120)).isoformat()
@@ -210,8 +210,8 @@ class TestGetSessionState:
         ]
         self._write_events(tmp_path, "sess-1", events)
         with patch("src.process_tracker.EVENTS_DIR", str(tmp_path)):
-            state, _ctx, _bg = _get_session_state("sess-1")
-        assert state == "waiting"
+            result = _get_session_state("sess-1")
+        assert result["state"] == "waiting"
 
 
 # ---------------------------------------------------------------------------
@@ -266,9 +266,9 @@ class TestReadEventData:
     def test_missing_file_returns_defaults(self, tmp_path):
         with patch("src.process_tracker.EVENTS_DIR", str(tmp_path)):
             data = _read_event_data("nonexistent")
-        assert data["tool_calls"] == 0
-        assert data["mcp_servers"] == []
-        assert data["intent"] == ""
+        assert data.tool_calls == 0
+        assert data.mcp_servers == []
+        assert data.intent == ""
 
     def test_reads_session_context(self, tmp_path):
         events = [
@@ -286,9 +286,9 @@ class TestReadEventData:
         self._write_events(tmp_path, "sess-1", events)
         with patch("src.process_tracker.EVENTS_DIR", str(tmp_path)):
             data = _read_event_data("sess-1")
-        assert data["cwd"] == "/project"
-        assert data["branch"] == "main"
-        assert data["repository"] == "owner/repo"
+        assert data.cwd == "/project"
+        assert data.branch == "main"
+        assert data.repository == "owner/repo"
 
     def test_counts_tool_calls(self, tmp_path):
         events = [
@@ -299,7 +299,7 @@ class TestReadEventData:
         self._write_events(tmp_path, "sess-1", events)
         with patch("src.process_tracker.EVENTS_DIR", str(tmp_path)):
             data = _read_event_data("sess-1")
-        assert data["tool_calls"] == 3
+        assert data.tool_calls == 3
 
     def test_reads_intent(self, tmp_path):
         events = [
@@ -314,7 +314,7 @@ class TestReadEventData:
         self._write_events(tmp_path, "sess-1", events)
         with patch("src.process_tracker.EVENTS_DIR", str(tmp_path)):
             data = _read_event_data("sess-1")
-        assert data["intent"] == "Fixing the bug"
+        assert data.intent == "Fixing the bug"
 
     def test_reads_mcp_servers_from_info_event(self, tmp_path):
         events = [
@@ -329,8 +329,8 @@ class TestReadEventData:
         self._write_events(tmp_path, "sess-1", events)
         with patch("src.process_tracker.EVENTS_DIR", str(tmp_path)):
             data = _read_event_data("sess-1")
-        assert "github" in data["mcp_servers"]
-        assert "slack" in data["mcp_servers"]
+        assert "github" in data.mcp_servers
+        assert "slack" in data.mcp_servers
 
 
 # ---------------------------------------------------------------------------

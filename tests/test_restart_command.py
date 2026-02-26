@@ -7,7 +7,7 @@ import importlib
 # Import the module in a way that handles relative imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from src.dashboard_app import _extract_extra_args, build_restart_command
+from src.dashboard_api import _extract_extra_args, build_restart_command
 
 
 class TestExtractExtraArgs:

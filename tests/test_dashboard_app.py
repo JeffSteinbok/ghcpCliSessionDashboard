@@ -1,4 +1,4 @@
-"""Tests for dashboard_app.py — pure helper functions and Flask routes."""
+"""Tests for dashboard_api.py — pure helper functions and FastAPI routes."""
 
 import json
 import signal
@@ -6,14 +6,22 @@ import sqlite3
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastapi.testclient import TestClient
 
-from src.dashboard_app import (
+from src.dashboard_api import (
     app,
     build_restart_command,
-    get_group_name,
     get_recent_activity,
     time_ago,
 )
+from src.grouping import get_group_name
+from src.models import EventData, ProcessInfo
+
+
+# Shared test client
+@pytest.fixture
+def client():
+    return TestClient(app)
 
 
 # ---------------------------------------------------------------------------
@@ -82,37 +90,34 @@ class TestTimeAgo:
 
 
 class TestGetGroupName:
-    def _session(self, cwd="", summary="", first_msg="", last_cp_overview=""):
+    def _session(self, cwd="", summary="", first_msg="", last_cp_overview="", repository=""):
         return {
             "cwd": cwd,
             "summary": summary,
             "first_msg": first_msg,
             "last_cp_overview": last_cp_overview,
+            "repository": repository,
         }
 
-    def test_src_path_returns_project_name(self):
+    def test_repository_field_used(self):
+        s = self._session(repository="owner/my-project")
+        assert get_group_name(s) == "my-project"
+
+    def test_repository_without_owner(self):
+        s = self._session(repository="standalone-repo")
+        assert get_group_name(s) == "standalone-repo"
+
+    def test_cwd_last_segment(self):
         s = self._session(cwd="/src/MyProject/feature")
-        assert get_group_name(s) == "MyProject"
+        assert get_group_name(s) == "feature"
 
-    def test_reviewstarclient_in_src_path(self):
-        s = self._session(cwd="/src/ReviewStarClientWeb/foo")
-        assert get_group_name(s) == "ReviewStarClient"
+    def test_cwd_skips_common_dirs(self):
+        s = self._session(cwd="/Users/home/src")
+        assert get_group_name(s) == "General"
 
-    def test_repositorytools_in_src_path(self):
-        s = self._session(cwd="/src/RepositoryTools/bar")
-        assert get_group_name(s) == "OneDrive.RepositoryTools"
-
-    def test_reviewstarclient_in_context(self):
-        s = self._session(summary="Working on ReviewStarClient feature")
-        assert get_group_name(s) == "ReviewStarClient"
-
-    def test_repositorytools_in_context(self):
-        s = self._session(first_msg="Fix bug in OneDrive.RepositoryTools")
-        assert get_group_name(s) == "OneDrive.RepositoryTools"
-
-    def test_spocore_in_context(self):
-        s = self._session(summary="Working in spo.core module")
-        assert get_group_name(s) == "SPO.Core"
+    def test_repository_takes_priority_over_cwd(self):
+        s = self._session(cwd="/some/path/foo", repository="org/bar")
+        assert get_group_name(s) == "bar"
 
     def test_dashboard_keyword(self):
         s = self._session(summary="Improve session dashboard UI")
@@ -131,7 +136,7 @@ class TestGetGroupName:
         assert get_group_name(s) == "Branch Cleanup"
 
     def test_cwd_last_segment_fallback(self):
-        s = self._session(cwd="C:/Users/jeffs/GitHub/MyRepo")
+        s = self._session(cwd="C:/Users/homer/MyRepo")
         assert get_group_name(s) == "MyRepo"
 
     def test_no_cwd_no_keywords_returns_general(self):
@@ -139,7 +144,7 @@ class TestGetGroupName:
         assert get_group_name(s) == "General"
 
     def test_windows_backslash_cwd(self):
-        s = self._session(cwd="C:\\Users\\jeffs\\GitHub\\MyProject")
+        s = self._session(cwd="C:\\Users\\homer\\MyProject")
         assert get_group_name(s) == "MyProject"
 
     def test_spec_keyword(self):
@@ -225,15 +230,8 @@ class TestBuildRestartCommand:
 
 
 # ---------------------------------------------------------------------------
-# Flask routes
+# FastAPI routes
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def client():
-    app.config["TESTING"] = True
-    with app.test_client() as c:
-        yield c
 
 
 @pytest.fixture
@@ -273,43 +271,43 @@ class TestApiSessions:
     def test_returns_session_list(self, client, populated_db):
         _conn, db_path = populated_db
         with (
-            patch("src.dashboard_app.DB_PATH", db_path),
-            patch("src.dashboard_app.get_running_sessions", return_value={}),
-            patch("src.dashboard_app.get_session_event_data", return_value={}),
+            patch("src.dashboard_api.DB_PATH", db_path),
+            patch("src.dashboard_api.get_running_sessions", return_value={}),
+            patch("src.dashboard_api.get_session_event_data", return_value=EventData()),
         ):
             resp = client.get("/api/sessions")
         assert resp.status_code == 200
-        data = resp.get_json()
+        data = resp.json()
         assert isinstance(data, list)
         assert len(data) == 1
         assert data[0]["id"] == "sess-1"
 
     def test_returns_503_when_db_missing(self, client, tmp_path):
         missing = str(tmp_path / "nonexistent.db")
-        with patch("src.dashboard_app.DB_PATH", missing):
+        with patch("src.dashboard_api.DB_PATH", missing):
             resp = client.get("/api/sessions")
         assert resp.status_code == 503
-        assert "error" in resp.get_json()
+        assert "error" in resp.json()
 
     def test_running_session_enriched(self, client, populated_db):
         _conn, db_path = populated_db
         running = {
-            "sess-1": {
-                "pid": 1234,
-                "state": "working",
-                "waiting_context": "",
-                "bg_tasks": 0,
-                "yolo": True,
-                "mcp_servers": ["github"],
-            }
+            "sess-1": ProcessInfo(
+                pid=1234,
+                state="working",
+                waiting_context="",
+                bg_tasks=0,
+                yolo=True,
+                mcp_servers=["github"],
+            )
         }
         with (
-            patch("src.dashboard_app.DB_PATH", db_path),
-            patch("src.dashboard_app.get_running_sessions", return_value=running),
-            patch("src.dashboard_app.get_session_event_data", return_value={}),
+            patch("src.dashboard_api.DB_PATH", db_path),
+            patch("src.dashboard_api.get_running_sessions", return_value=running),
+            patch("src.dashboard_api.get_session_event_data", return_value=EventData()),
         ):
             resp = client.get("/api/sessions")
-        data = resp.get_json()
+        data = resp.json()
         session = data[0]
         assert session["is_running"] is True
         assert session["state"] == "working"
@@ -320,12 +318,12 @@ class TestApiSessionDetail:
     def test_returns_detail(self, client, populated_db):
         _conn, db_path = populated_db
         with (
-            patch("src.dashboard_app.DB_PATH", db_path),
-            patch("src.dashboard_app.get_recent_output", return_value=["line1"]),
+            patch("src.dashboard_api.DB_PATH", db_path),
+            patch("src.dashboard_api.get_recent_output", return_value=["line1"]),
         ):
             resp = client.get("/api/session/sess-1")
         assert resp.status_code == 200
-        data = resp.get_json()
+        data = resp.json()
         assert "checkpoints" in data
         assert "refs" in data
         assert "turns" in data
@@ -334,7 +332,7 @@ class TestApiSessionDetail:
 
     def test_returns_503_when_db_missing(self, client, tmp_path):
         missing = str(tmp_path / "nonexistent.db")
-        with patch("src.dashboard_app.DB_PATH", missing):
+        with patch("src.dashboard_api.DB_PATH", missing):
             resp = client.get("/api/session/sess-1")
         assert resp.status_code == 503
 
@@ -342,104 +340,106 @@ class TestApiSessionDetail:
 class TestApiFiles:
     def test_returns_file_list(self, client, populated_db):
         _conn, db_path = populated_db
-        with patch("src.dashboard_app.DB_PATH", db_path):
+        with patch("src.dashboard_api.DB_PATH", db_path):
             resp = client.get("/api/files")
         assert resp.status_code == 200
-        data = resp.get_json()
+        data = resp.json()
         assert any(f["file_path"] == "src/foo.py" for f in data)
 
     def test_returns_503_when_db_missing(self, client, tmp_path):
         missing = str(tmp_path / "nonexistent.db")
-        with patch("src.dashboard_app.DB_PATH", missing):
+        with patch("src.dashboard_api.DB_PATH", missing):
             resp = client.get("/api/files")
         assert resp.status_code == 503
 
 
 class TestApiProcesses:
     def test_returns_dict(self, client):
-        fake = {"sess-1": {"pid": 999, "state": "working"}}
-        with patch("src.dashboard_app.get_running_sessions", return_value=fake):
+        from dataclasses import asdict
+
+        fake = {"sess-1": ProcessInfo(pid=999, state="working")}
+        with patch("src.dashboard_api.get_running_sessions", return_value=fake):
             resp = client.get("/api/processes")
         assert resp.status_code == 200
-        assert resp.get_json() == fake
+        assert resp.json() == {"sess-1": asdict(ProcessInfo(pid=999, state="working"))}
 
 
 class TestApiFocus:
     def test_success(self, client):
-        with patch("src.dashboard_app.focus_session_window", return_value=(True, "Focused: Terminal")):
+        with patch("src.dashboard_api.focus_session_window", return_value=(True, "Focused: Terminal")):
             resp = client.post("/api/focus/sess-1")
         assert resp.status_code == 200
-        data = resp.get_json()
+        data = resp.json()
         assert data["success"] is True
         assert "Focused" in data["message"]
 
     def test_failure(self, client):
-        with patch("src.dashboard_app.focus_session_window", return_value=(False, "Not found")):
+        with patch("src.dashboard_api.focus_session_window", return_value=(False, "Not found")):
             resp = client.post("/api/focus/sess-1")
-        data = resp.get_json()
+        data = resp.json()
         assert data["success"] is False
 
 
 class TestApiKill:
     def test_session_not_found(self, client):
-        with patch("src.dashboard_app.get_running_sessions", return_value={}):
+        with patch("src.dashboard_api.get_running_sessions", return_value={}):
             resp = client.post("/api/kill/sess-1")
         assert resp.status_code == 404
-        assert resp.get_json()["success"] is False
+        assert resp.json()["success"] is False
 
     def test_no_pid_available(self, client):
-        running = {"sess-1": {"state": "working"}}
-        with patch("src.dashboard_app.get_running_sessions", return_value=running):
+        running = {"sess-1": ProcessInfo(pid=0, state="working")}
+        with patch("src.dashboard_api.get_running_sessions", return_value=running):
             resp = client.post("/api/kill/sess-1")
         assert resp.status_code == 404
-        assert resp.get_json()["success"] is False
+        assert resp.json()["success"] is False
 
     def test_success_unix(self, client):
-        running = {"sess-1": {"pid": 1234, "state": "working"}}
+        running = {"sess-1": ProcessInfo(pid=1234, state="working")}
         with (
-            patch("src.dashboard_app.get_running_sessions", return_value=running),
-            patch("src.dashboard_app.sys.platform", "linux"),
-            patch("src.dashboard_app.os.kill") as mock_kill,
+            patch("src.dashboard_api.get_running_sessions", return_value=running),
+            patch("src.dashboard_api.sys.platform", "linux"),
+            patch("src.dashboard_api.os.kill") as mock_kill,
         ):
             resp = client.post("/api/kill/sess-1")
         assert resp.status_code == 200
-        data = resp.get_json()
+        data = resp.json()
         assert data["success"] is True
         assert "1234" in data["message"]
         mock_kill.assert_called_once_with(1234, signal.SIGTERM)
 
     def test_success_windows(self, client):
-        running = {"sess-1": {"pid": 5678, "state": "working"}}
+        running = {"sess-1": ProcessInfo(pid=5678, state="working")}
         with (
-            patch("src.dashboard_app.get_running_sessions", return_value=running),
-            patch("src.dashboard_app.sys.platform", "win32"),
-            patch("src.dashboard_app.subprocess.run") as mock_run,
+            patch("src.dashboard_api.get_running_sessions", return_value=running),
+            patch("src.dashboard_api.sys.platform", "win32"),
+            patch("src.dashboard_api.subprocess.run") as mock_run,
         ):
             resp = client.post("/api/kill/sess-1")
         assert resp.status_code == 200
-        assert resp.get_json()["success"] is True
+        assert resp.json()["success"] is True
         mock_run.assert_called_once()
         args = mock_run.call_args[0][0]
         assert "taskkill" in args
         assert str(5678) in args
 
     def test_kill_failure(self, client):
-        running = {"sess-1": {"pid": 1234, "state": "working"}}
+        running = {"sess-1": ProcessInfo(pid=1234, state="working")}
         with (
-            patch("src.dashboard_app.get_running_sessions", return_value=running),
-            patch("src.dashboard_app.sys.platform", "linux"),
-            patch("src.dashboard_app.os.kill", side_effect=OSError("no such process")),
+            patch("src.dashboard_api.get_running_sessions", return_value=running),
+            patch("src.dashboard_api.sys.platform", "linux"),
+            patch("src.dashboard_api.os.kill", side_effect=OSError("no such process")),
         ):
             resp = client.post("/api/kill/sess-1")
         assert resp.status_code == 500
-        assert resp.get_json()["success"] is False
+        assert resp.json()["success"] is False
 
 
 class TestApiServerInfo:
     def test_returns_pid_and_port(self, client):
         resp = client.get("/api/server-info")
         assert resp.status_code == 200
-        data = resp.get_json()
+        data = resp.json()
         assert "pid" in data
         assert "port" in data
 
@@ -448,7 +448,7 @@ class TestManifest:
     def test_returns_pwa_manifest(self, client):
         resp = client.get("/manifest.json")
         assert resp.status_code == 200
-        data = resp.get_json()
+        data = resp.json()
         assert data["name"] == "Copilot Dashboard"
         assert "icons" in data
         assert data["display"] == "standalone"
@@ -458,5 +458,5 @@ class TestServiceWorker:
     def test_returns_js(self, client):
         resp = client.get("/sw.js")
         assert resp.status_code == 200
-        assert resp.content_type == "application/javascript"
-        assert b"fetch" in resp.data
+        assert "application/javascript" in resp.headers["content-type"]
+        assert b"fetch" in resp.content

@@ -5,8 +5,14 @@ on:
     types: [published]
 
 jobs:
+  frontend:
+    uses: ./.github/workflows/_build-frontend.yml
+    with:
+      skip_checks: true  # Already validated by CI/release
+
   publish:
     runs-on: ubuntu-latest
+    needs: [frontend]
     permissions:
       id-token: write  # For trusted publishing
       contents: read
@@ -14,6 +20,12 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Download frontend build
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: src/static/dist/
 
       - name: Set up Python
         uses: actions/setup-python@v5

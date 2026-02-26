@@ -2,8 +2,6 @@
 Process and window tracker for Copilot CLI sessions.
 Uses pywin32 to map running sessions to terminal windows and focus them.
 Also detects session state (waiting/working), yolo mode, and MCP servers.
-
-Requires Python >= 3.12.
 """
 
 import json
@@ -15,24 +13,40 @@ import threading
 import time
 from datetime import UTC, datetime
 
-if sys.version_info < (3, 12):
-    sys.exit("Error: Python >= 3.12 is required. Found: " + sys.version)
+from .constants import (
+    EVENT_STALENESS_THRESHOLD,
+    EVENT_TAIL_BUFFER,
+    MACOS_APP_NAMES,
+    MACOS_FALLBACK_TERMINALS,
+    MAX_ANCESTRY_DEPTH,
+    MAX_DIAGNOSTICS_CHAIN,
+    MAX_UNIX_PARENT_DEPTH,
+    OSASCRIPT_TIMEOUT,
+    OUTPUT_TAIL_BUFFER,
+    PARENT_LOOKUP_TIMEOUT,
+    POWERSHELL_TIMEOUT,
+    PROCESS_MATCH_TOLERANCE,
+    PS_TIMEOUT,
+    RUNNING_CACHE_TTL,
+    SESSION_STATE_DIR,
+    TERMINAL_NAMES,
+    UNIX_TERMINAL_SUBSTRINGS,
+)
+from .models import EventData, ProcessInfo, RunningCache, SessionState
 
-
-EVENTS_DIR = os.path.join(os.path.expanduser("~"), ".copilot", "session-state")
+EVENTS_DIR = SESSION_STATE_DIR
 
 # ---------------------------------------------------------------------------
 # Caching layer
 # ---------------------------------------------------------------------------
 # TTL cache for get_running_sessions() — avoids repeated WMI/ps subprocess calls
-_running_cache = {"data": {}, "time": 0}
-_RUNNING_CACHE_TTL = 5  # seconds
+_running_cache = RunningCache()
 _running_lock = threading.Lock()
 
 # Permanent cache for inactive session event data (mcp_servers, tool_counts,
 # context, intent). Active sessions are re-read each poll; inactive ones are
 # cached forever since their events.jsonl won't change.
-_event_data_cache = {}  # session_id -> dict
+_event_data_cache: dict[str, EventData] = {}
 
 
 def _read_recent_events(session_id, count=10):
@@ -44,7 +58,7 @@ def _read_recent_events(session_id, count=10):
         with open(events_file, "rb") as f:
             f.seek(0, 2)
             size = f.tell()
-            read_from = max(0, size - 16384)
+            read_from = max(0, size - EVENT_TAIL_BUFFER)
             f.seek(read_from)
             chunk = f.read().decode("utf-8", errors="replace")
         raw_lines = [ln.strip() for ln in chunk.split("\n") if ln.strip()]
@@ -59,17 +73,14 @@ def _read_recent_events(session_id, count=10):
         return []
 
 
-def _get_session_state(session_id):
+def _get_session_state(session_id) -> SessionState:
     """
     Determine session state from events.jsonl.
-    Returns: (state, waiting_context, running_bg_tasks)
-      state: 'waiting' | 'idle' | 'working' | 'thinking' | 'unknown'
-      waiting_context: str (question text if waiting/idle)
-      running_bg_tasks: int count of background subagents currently running
+    Returns a SessionState dict with state, waiting_context, and bg_tasks.
     """
     events = _read_recent_events(session_id, 30)
     if not events:
-        return "unknown", "", 0
+        return SessionState(state="unknown", waiting_context="", bg_tasks=0)
 
     # Count running subagents from full file (fast string search)
     events_file = os.path.join(EVENTS_DIR, session_id, "events.jsonl")
@@ -108,7 +119,7 @@ def _get_session_state(session_id):
             ctx = question
             if choices:
                 ctx += " [" + " / ".join(choices[:4]) + "]"
-            return "waiting", ctx, bg
+            return SessionState(state="waiting", waiting_context=ctx, bg_tasks=bg)
         if tool != "report_intent":
             has_pending_work = True
 
@@ -120,11 +131,15 @@ def _get_session_state(session_id):
             try:
                 evt_time = datetime.fromisoformat(last_ts.replace("Z", "+00:00"))
                 age = (datetime.now(UTC) - evt_time).total_seconds()
-                if age > 60:
-                    return "waiting", "Session likely waiting for input", bg
+                if age > EVENT_STALENESS_THRESHOLD:
+                    return SessionState(
+                        state="waiting",
+                        waiting_context="Session likely waiting for input",
+                        bg_tasks=bg,
+                    )
             except (ValueError, TypeError):
                 pass
-        return "working", "", bg
+        return SessionState(state="working", waiting_context="", bg_tasks=bg)
 
     # Fall back to last event type
     last = events[-1]
@@ -132,25 +147,31 @@ def _get_session_state(session_id):
     data = last.get("data", {})
 
     if etype == "assistant.turn_end":
-        return "idle", "Session idle \u2014 waiting for user message", bg
+        return SessionState(
+            state="idle",
+            waiting_context="Session idle \u2014 waiting for user message",
+            bg_tasks=bg,
+        )
     if etype == "tool.execution_start":
         tool = data.get("toolName", "")
         if tool in ("ask_user", "ask_permission"):
             args = data.get("arguments", {})
-            return "waiting", args.get("question", ""), bg
-        return "working", "", bg
+            return SessionState(
+                state="waiting", waiting_context=args.get("question", ""), bg_tasks=bg
+            )
+        return SessionState(state="working", waiting_context="", bg_tasks=bg)
     if etype == "subagent.started":
-        return "working", "", bg
+        return SessionState(state="working", waiting_context="", bg_tasks=bg)
     if etype in (
         "tool.execution_complete",
         "subagent.completed",
         "assistant.turn_start",
         "assistant.message",
     ):
-        return "thinking", "", bg
+        return SessionState(state="thinking", waiting_context="", bg_tasks=bg)
     if etype == "user.message":
-        return "thinking", "", bg
-    return "unknown", "", bg
+        return SessionState(state="thinking", waiting_context="", bg_tasks=bg)
+    return SessionState(state="unknown", waiting_context="", bg_tasks=bg)
 
 
 def _parse_mcp_servers(cmdline):
@@ -188,7 +209,7 @@ def _match_process_to_session(creation_date_str):
         return None
 
     best_sid = None
-    best_delta = 10.0  # max 10 seconds tolerance
+    best_delta = PROCESS_MATCH_TOLERANCE
 
     for sid in os.listdir(EVENTS_DIR):
         events_file = os.path.join(EVENTS_DIR, sid, "events.jsonl")
@@ -216,7 +237,7 @@ def _match_process_to_session(creation_date_str):
     return best_sid
 
 
-def _get_running_sessions_windows():
+def _get_running_sessions_windows() -> dict[str, ProcessInfo]:
     """Find running copilot.exe processes on Windows via PowerShell/WMI."""
     # Get all processes once, then walk ancestry in Python
     ps_script = (
@@ -229,7 +250,7 @@ def _get_running_sessions_windows():
         ["powershell", "-NoProfile", "-Command", ps_script],
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=POWERSHELL_TIMEOUT,
         check=False,
     )
     if result.returncode != 0 or not result.stdout.strip():
@@ -239,41 +260,6 @@ def _get_running_sessions_windows():
     if isinstance(data, dict):
         data = [data]
 
-    # Known terminal/IDE process names to look for when walking ancestry.
-    # Only include apps that own actual GUI windows — not shells (pwsh, bash, etc.)
-    _TERMINAL_NAMES = {
-        # Windows terminal apps
-        "windowsterminal.exe",
-        "wt.exe",
-        "conemu64.exe",
-        "conemu.exe",
-        "cmder.exe",
-        "mintty.exe",
-        "alacritty.exe",
-        "wezterm-gui.exe",
-        "hyper.exe",
-        "tabby.exe",
-        "kitty.exe",
-        "fluent-terminal.exe",
-        # Windows IDEs
-        "code.exe",
-        "cursor.exe",
-        # macOS terminal apps (no .exe)
-        "iterm2",
-        "terminal",
-        "alacritty",
-        "wezterm",
-        "hyper",
-        "kitty",
-        "tabby",
-        "warp",
-        "nova",
-        # macOS IDEs
-        "code",
-        "cursor",
-        "xcode",
-    }
-
     # Build a PID -> proc lookup for ancestry walking
     pid_map: dict = {p.get("ProcessId"): p for p in data if p.get("ProcessId")}
 
@@ -281,12 +267,12 @@ def _get_running_sessions_windows():
         """Walk ancestors to find the nearest known terminal process."""
         visited = set()
         pid = start_pid
-        for _ in range(10):
+        for _ in range(MAX_ANCESTRY_DEPTH):
             proc = pid_map.get(pid)
             if not proc:
                 break
             name = (proc.get("Name") or "").lower()
-            if name in _TERMINAL_NAMES:
+            if name in TERMINAL_NAMES:
                 return proc.get("ProcessId", 0), proc.get("Name", "")
             ppid = proc.get("ParentProcessId", 0)
             if ppid == 0 or ppid in visited:
@@ -297,21 +283,21 @@ def _get_running_sessions_windows():
 
     copilot_procs = [p for p in data if (p.get("Name") or "").lower() == "copilot.exe"]
 
-    sessions = {}
+    sessions: dict[str, ProcessInfo] = {}
     unmatched = []  # processes without --resume that need timestamp matching
 
     for proc in copilot_procs:
         cmd = proc.get("CommandLine", "")
         terminal_pid, terminal_name = _find_terminal(proc.get("ParentProcessId", 0))
-        proc_info = {
-            "pid": proc.get("ProcessId"),
-            "parent_pid": proc.get("ParentProcessId"),
-            "terminal_pid": terminal_pid,
-            "terminal_name": terminal_name,
-            "cmdline": cmd,
-            "yolo": "--yolo" in cmd,
-            "mcp_servers": _parse_mcp_servers(cmd),
-        }
+        proc_info = ProcessInfo(
+            pid=proc.get("ProcessId", 0),
+            parent_pid=proc.get("ParentProcessId", 0),
+            terminal_pid=terminal_pid,
+            terminal_name=terminal_name,
+            cmdline=cmd,
+            yolo="--yolo" in cmd,
+            mcp_servers=_parse_mcp_servers(cmd),
+        )
 
         if "--resume" in cmd:
             parts = cmd.split("--resume")
@@ -328,25 +314,25 @@ def _get_running_sessions_windows():
         sid = _match_process_to_session(created)
         if sid:
             # Prefer this over a previously unmatched entry, but don't clobber --resume matches
-            if sid not in sessions or sessions[sid].get("cmdline", "").find("--resume") == -1:
+            if sid not in sessions or "--resume" not in sessions[sid].cmdline:
                 sessions[sid] = proc_info
 
     return sessions
 
 
-def _get_running_sessions_unix():
+def _get_running_sessions_unix() -> dict[str, ProcessInfo]:
     """Find running copilot processes on macOS/Linux via ps."""
     result = subprocess.run(
         ["ps", "axo", "pid,ppid,lstart,command"],
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=PS_TIMEOUT,
         check=False,
     )
     if result.returncode != 0 or not result.stdout.strip():
         return {}
 
-    sessions = {}
+    sessions: dict[str, ProcessInfo] = {}
     for line in result.stdout.strip().split("\n")[1:]:
         line = line.strip()
         # Match copilot binary (copilot or copilot.exe, or node ... copilot)
@@ -366,12 +352,12 @@ def _get_running_sessions_unix():
         terminal_name = ""
         try:
             cur_ppid = ppid
-            for _ in range(5):
+            for _ in range(MAX_UNIX_PARENT_DEPTH):
                 parent_result = subprocess.run(
                     ["ps", "-p", str(cur_ppid), "-o", "ppid=,comm="],
                     capture_output=True,
                     text=True,
-                    timeout=5,
+                    timeout=PARENT_LOOKUP_TIMEOUT,
                     check=False,
                 )
                 if parent_result.returncode != 0 or not parent_result.stdout.strip():
@@ -381,19 +367,7 @@ def _get_running_sessions_unix():
                     break
                 pname = pinfo[1].strip().lower()
                 # Check if this is a terminal application
-                if any(
-                    t in pname
-                    for t in (
-                        "terminal",
-                        "iterm",
-                        "alacritty",
-                        "kitty",
-                        "warp",
-                        "hyper",
-                        "wezterm",
-                        "windowserver",
-                    )
-                ):
+                if any(t in pname for t in UNIX_TERMINAL_SUBSTRINGS):
                     terminal_pid = cur_ppid
                     terminal_name = pinfo[1].strip()
                     break
@@ -401,16 +375,15 @@ def _get_running_sessions_unix():
         except Exception:
             pass
 
-        proc_info = {
-            "pid": pid,
-            "parent_pid": ppid,
-            "grandparent_pid": 0,
-            "terminal_pid": terminal_pid,
-            "terminal_name": terminal_name,
-            "cmdline": cmd,
-            "yolo": "--yolo" in cmd,
-            "mcp_servers": _parse_mcp_servers(cmd),
-        }
+        proc_info = ProcessInfo(
+            pid=pid,
+            parent_pid=ppid,
+            terminal_pid=terminal_pid,
+            terminal_name=terminal_name,
+            cmdline=cmd,
+            yolo="--yolo" in cmd,
+            mcp_servers=_parse_mcp_servers(cmd),
+        )
 
         if "--resume" in cmd:
             # Extract session ID from --resume <session_id>
@@ -433,19 +406,18 @@ def _get_running_sessions_unix():
     return sessions
 
 
-def get_running_sessions():
+def get_running_sessions() -> dict[str, ProcessInfo]:
     """
     Find running copilot processes and extract session info.
-    Returns dict: {session_id: {pid, parent_pid, terminal_pid, cmdline,
-                                yolo, state, mcp_servers}}
+    Returns dict: {session_id: ProcessInfo}
     Uses a TTL cache to avoid repeated expensive WMI/ps subprocess calls.
     Lock is held across the entire operation so concurrent requests wait
     for the first one rather than each spawning their own subprocess.
     """
     with _running_lock:
         now = time.monotonic()
-        if now - _running_cache["time"] < _RUNNING_CACHE_TTL and _running_cache["data"]:
-            return _running_cache["data"]
+        if now - _running_cache.time < RUNNING_CACHE_TTL and _running_cache.data:
+            return _running_cache.data
         try:
             if sys.platform == "win32":
                 sessions = _get_running_sessions_windows()
@@ -453,32 +425,24 @@ def get_running_sessions():
                 sessions = _get_running_sessions_unix()
             # Enrich each session with state info
             for sid, info in sessions.items():
-                state, waiting_ctx, bg_tasks = _get_session_state(sid)
-                info["state"] = state
-                info["waiting_context"] = waiting_ctx
-                info["bg_tasks"] = bg_tasks
-            _running_cache["data"] = sessions
-            _running_cache["time"] = time.monotonic()
+                ss = _get_session_state(sid)
+                info.state = ss["state"]
+                info.waiting_context = ss["waiting_context"]
+                info.bg_tasks = ss["bg_tasks"]
+            _running_cache.data = sessions
+            _running_cache.time = time.monotonic()
             return sessions
         except Exception as e:
             print(f"[process_tracker] Error scanning processes: {e}")
-            return {}
+            return _running_cache.data
 
 
-def _read_event_data(session_id):
+def _read_event_data(session_id) -> EventData:
     """
     Read mcp_servers, tool_counts, context (cwd/branch/repo), and intent
-    from a session's events.jsonl.  Returns a dict with all fields.
+    from a session's events.jsonl.  Returns an EventData dataclass.
     """
-    result = {
-        "mcp_servers": [],
-        "tool_calls": 0,
-        "subagent_runs": 0,
-        "cwd": "",
-        "branch": "",
-        "repository": "",
-        "intent": "",
-    }
+    result = EventData()
     events_file = os.path.join(EVENTS_DIR, session_id, "events.jsonl")
     if not os.path.exists(events_file):
         return result
@@ -495,13 +459,13 @@ def _read_event_data(session_id):
                     continue
 
                 # Fast string pre-checks to avoid JSON parsing every line
-                if ('"session.start"' in line or '"session.resume"' in line) and not result["cwd"]:
+                if ('"session.start"' in line or '"session.resume"' in line) and not result.cwd:
                     try:
                         evt = json.loads(line)
                         ctx = evt.get("data", {}).get("context", {})
-                        result["cwd"] = ctx.get("cwd", "")
-                        result["branch"] = ctx.get("branch", "")
-                        result["repository"] = ctx.get("repository", "")
+                        result.cwd = ctx.get("cwd", "")
+                        result.branch = ctx.get("branch", "")
+                        result.repository = ctx.get("repository", "")
                     except Exception:
                         pass
                     continue
@@ -512,13 +476,11 @@ def _read_event_data(session_id):
                         msg = evt.get("data", {}).get("message", "")
                         if "Configured MCP servers:" in msg:
                             names = msg.split("Configured MCP servers:")[-1].strip()
-                            result["mcp_servers"] = [
-                                n.strip() for n in names.split(",") if n.strip()
-                            ]
+                            result.mcp_servers = [n.strip() for n in names.split(",") if n.strip()]
                         elif "GitHub MCP Server" in msg:
-                            result["mcp_servers"] = ["github"]
+                            result.mcp_servers = ["github"]
                         elif msg:
-                            result["mcp_servers"] = [msg]
+                            result.mcp_servers = [msg]
                         mcp_found = True
                     except Exception:
                         pass
@@ -543,9 +505,9 @@ def _read_event_data(session_id):
                 if '"subagent.completed"' in line:
                     sub_count += 1
 
-        result["tool_calls"] = tool_count
-        result["subagent_runs"] = sub_count
-        result["intent"] = last_intent
+        result.tool_calls = tool_count
+        result.subagent_runs = sub_count
+        result.intent = last_intent
     except Exception:
         pass
 
@@ -575,7 +537,7 @@ def _get_live_branch(cwd: str) -> str:
     return ""
 
 
-def get_session_event_data(session_id, is_running=False):
+def get_session_event_data(session_id, is_running=False) -> EventData:
     """
     Get cached event data for a session.
     Active sessions are always re-read; inactive sessions use permanent cache.
@@ -586,10 +548,10 @@ def get_session_event_data(session_id, is_running=False):
     data = _read_event_data(session_id)
 
     # For running sessions, refresh branch from live .git/HEAD
-    if is_running and data.get("cwd"):
-        live = _get_live_branch(data["cwd"])
+    if is_running and data.cwd:
+        live = _get_live_branch(data.cwd)
         if live:
-            data["branch"] = live
+            data.branch = live
 
     # Cache permanently for inactive sessions
     if not is_running:
@@ -600,7 +562,7 @@ def get_session_event_data(session_id, is_running=False):
 
 def get_session_mcp_servers(session_id):
     """Extract MCP server names from a session's events.jsonl (works for past sessions)."""
-    return get_session_event_data(session_id).get("mcp_servers", [])
+    return get_session_event_data(session_id).mcp_servers
 
 
 def get_recent_output(session_id, max_lines=10):
@@ -615,7 +577,7 @@ def get_recent_output(session_id, max_lines=10):
         with open(events_file, "rb") as f:
             f.seek(0, 2)
             size = f.tell()
-            read_from = max(0, size - 65536)
+            read_from = max(0, size - OUTPUT_TAIL_BUFFER)
             f.seek(read_from)
             chunk = f.read().decode("utf-8", errors="replace")
 
@@ -642,10 +604,10 @@ def get_recent_output(session_id, max_lines=10):
 def get_session_tool_counts(session_id):
     """Count tool calls and subagent runs for a session."""
     data = get_session_event_data(session_id)
-    return data.get("tool_calls", 0), data.get("subagent_runs", 0)
+    return data.tool_calls, data.subagent_runs
 
 
-def _focus_session_window_windows(session_id, sessions):
+def _focus_session_window_windows(session_id, sessions: dict[str, ProcessInfo]):
     """Focus terminal window on Windows using pywin32."""
     try:
         import win32con
@@ -655,16 +617,16 @@ def _focus_session_window_windows(session_id, sessions):
         return False, "pywin32 not installed. Run: session_dashboard.py install"
 
     info = sessions[session_id]
-    copilot_pid = info.get("pid", 0)
-    terminal_pid = info.get("terminal_pid", 0)
-    terminal_name = info.get("terminal_name", "")
+    copilot_pid = info.pid
+    terminal_pid = info.terminal_pid
+    terminal_name = info.terminal_name
 
     # Build full ancestry chain for diagnostics
     def _get_ancestry(start_pid):
         chain = []
         pid = start_pid
         visited = set()
-        for _ in range(12):
+        for _ in range(MAX_DIAGNOSTICS_CHAIN):
             if pid in visited:
                 break
             visited.add(pid)
@@ -679,7 +641,7 @@ def _focus_session_window_windows(session_id, sessions):
                     ],
                     capture_output=True,
                     text=True,
-                    timeout=5,
+                    timeout=PARENT_LOOKUP_TIMEOUT,
                     check=False,
                 )
                 import json as _json
@@ -728,10 +690,12 @@ def _focus_session_window_windows(session_id, sessions):
         fg_hwnd = win32gui.GetForegroundWindow()
         fg_thread = win32process.GetWindowThreadProcessId(fg_hwnd)[0]
         my_thread = win32process.GetWindowThreadProcessId(target_hwnd)[0]
+        # windll is Windows-only; type: ignore keeps mypy happy on Linux
+        user32 = ctypes.windll.user32  # type: ignore[attr-defined]
         if fg_thread != my_thread:
-            ctypes.windll.user32.AttachThreadInput(fg_thread, my_thread, True)
+            user32.AttachThreadInput(fg_thread, my_thread, True)
             win32gui.SetForegroundWindow(target_hwnd)
-            ctypes.windll.user32.AttachThreadInput(fg_thread, my_thread, False)
+            user32.AttachThreadInput(fg_thread, my_thread, False)
         else:
             win32gui.SetForegroundWindow(target_hwnd)
         title = win32gui.GetWindowText(target_hwnd)
@@ -740,30 +704,22 @@ def _focus_session_window_windows(session_id, sessions):
         return False, f"Could not focus window: {e}\n{diag}"
 
 
-def _focus_session_window_macos(session_id, sessions):
+def _focus_session_window_macos(session_id, sessions: dict[str, ProcessInfo]):
     """Focus terminal window on macOS using osascript."""
     info = sessions[session_id]
-    terminal_name = info.get("terminal_name", "")
+    terminal_name = info.terminal_name
 
     # Map process name to application name for AppleScript
     app_name = None
     tn = terminal_name.lower()
-    if "iterm" in tn:
-        app_name = "iTerm"
-    elif "terminal" in tn:
-        app_name = "Terminal"
-    elif "alacritty" in tn:
-        app_name = "Alacritty"
-    elif "kitty" in tn:
-        app_name = "kitty"
-    elif "warp" in tn:
-        app_name = "Warp"
-    elif "wezterm" in tn:
-        app_name = "WezTerm"
+    for substring, name in MACOS_APP_NAMES.items():
+        if substring in tn:
+            app_name = name
+            break
 
     if not app_name:
-        # Fallback: try to find the frontmost terminal app that owns this PID
-        for candidate in ["Terminal", "iTerm", "Warp"]:
+        # Fallback: use the first known terminal app
+        for candidate in MACOS_FALLBACK_TERMINALS:
             app_name = candidate
             break
 
@@ -776,7 +732,7 @@ def _focus_session_window_macos(session_id, sessions):
             ["osascript", "-e", script],
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=OSASCRIPT_TIMEOUT,
             check=False,
         )
         if result.returncode == 0:

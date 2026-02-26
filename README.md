@@ -7,6 +7,7 @@
 
 [![Publish to PyPI](https://github.com/JeffSteinbok/ghcpCliDashboard/actions/workflows/publish-pypi.yml/badge.svg)](https://github.com/JeffSteinbok/ghcpCliDashboard/actions/workflows/publish-pypi.yml)
 [![PyPI version](https://img.shields.io/pypi/v/ghcp-cli-dashboard.svg?v=0.3.2)](https://pypi.org/project/ghcp-cli-dashboard/)
+[![OpenAPI](https://img.shields.io/badge/OpenAPI-spec-green?logo=openapiinitiative)](https://editor.swagger.io/?url=https://raw.githubusercontent.com/JeffSteinbok/ghcpCliDashboard/main/docs/openapi.json)
 
 A local web dashboard that monitors all your GitHub Copilot CLI sessions in real-time.
 Designed for power users running multiple Copilot sessions simultaneously.
@@ -83,14 +84,15 @@ Click the 🔕 button in the header to enable browser notifications. You'll get 
 
 ### Appearance
 - **Light/Dark mode** toggle
-- **Color palettes** — Default and Pink themes
+- **9 color palettes** — Default, Pink, Ocean, Forest, Sunset, Mono, Neon, Slate, and Rose Gold
 - **Auto-refresh** — active sessions poll every 5s, full session list every 30s; expanded sections and collapsed groups persist across refreshes
 
 ## Prerequisites
 
 | Package | Purpose |
 |---------|---------|
-| `flask` | Web server |
+| `fastapi` | Web framework with auto-generated OpenAPI docs |
+| `uvicorn` | ASGI server |
 | `pywin32` | Window focus and process detection (Windows-only) |
 
 Both are installed automatically via `pip install ghcp-cli-dashboard`.

@@ -1,0 +1,790 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Copilot Dashboard",
+    "description": "Monitor all your GitHub Copilot CLI sessions in real-time.",
+    "version": "0.4.1"
+  },
+  "paths": {
+    "/api/sessions": {
+      "get": {
+        "summary": "Api Sessions",
+        "description": "List all sessions with enriched metadata.",
+        "operationId": "api_sessions_api_sessions_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SessionResponse"
+                  },
+                  "type": "array",
+                  "title": "Response Api Sessions Api Sessions Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/session/{session_id}": {
+      "get": {
+        "summary": "Api Session Detail",
+        "description": "Get detailed info for a single session.",
+        "operationId": "api_session_detail_api_session__session_id__get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionDetailResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/files": {
+      "get": {
+        "summary": "Api Files",
+        "description": "Return most-edited files across all sessions.",
+        "operationId": "api_files_api_files_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/FileEntryResponse"
+                  },
+                  "type": "array",
+                  "title": "Response Api Files Api Files Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/processes": {
+      "get": {
+        "summary": "Api Processes",
+        "description": "Return currently running copilot sessions mapped by session ID.",
+        "operationId": "api_processes_api_processes_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "$ref": "#/components/schemas/ProcessResponse"
+                  },
+                  "type": "object",
+                  "title": "Response Api Processes Api Processes Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/kill/{session_id}": {
+      "post": {
+        "summary": "Api Kill",
+        "description": "Kill the process for a running session.",
+        "operationId": "api_kill_api_kill__session_id__post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/focus/{session_id}": {
+      "post": {
+        "summary": "Api Focus",
+        "description": "Focus the terminal window for a running session.",
+        "operationId": "api_focus_api_focus__session_id__post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/server-info": {
+      "get": {
+        "summary": "Server Info",
+        "description": "Return server metadata including PID.",
+        "operationId": "server_info_api_server_info_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerInfoResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/version": {
+      "get": {
+        "summary": "Api Version",
+        "description": "Return current version and check PyPI for the latest release.",
+        "operationId": "api_version_api_version_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/update": {
+      "post": {
+        "summary": "Api Update",
+        "description": "Spawn a detached subprocess to pip-upgrade the package and restart.",
+        "operationId": "api_update_api_update_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ActionResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "title": "ActionResponse",
+        "description": "Generic success/failure response for POST actions."
+      },
+      "CheckpointResponse": {
+        "properties": {
+          "checkpoint_number": {
+            "type": "integer",
+            "title": "Checkpoint Number"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "overview": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overview"
+          },
+          "next_steps": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Steps"
+          }
+        },
+        "type": "object",
+        "required": [
+          "checkpoint_number"
+        ],
+        "title": "CheckpointResponse"
+      },
+      "FileEntryResponse": {
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "title": "File Path"
+          },
+          "session_count": {
+            "type": "integer",
+            "title": "Session Count"
+          },
+          "session_ids": {
+            "type": "string",
+            "title": "Session Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file_path",
+          "session_count",
+          "session_ids"
+        ],
+        "title": "FileEntryResponse"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "ProcessResponse": {
+        "properties": {
+          "pid": {
+            "type": "integer",
+            "title": "Pid"
+          },
+          "parent_pid": {
+            "type": "integer",
+            "title": "Parent Pid",
+            "default": 0
+          },
+          "terminal_pid": {
+            "type": "integer",
+            "title": "Terminal Pid",
+            "default": 0
+          },
+          "terminal_name": {
+            "type": "string",
+            "title": "Terminal Name",
+            "default": ""
+          },
+          "cmdline": {
+            "type": "string",
+            "title": "Cmdline",
+            "default": ""
+          },
+          "yolo": {
+            "type": "boolean",
+            "title": "Yolo",
+            "default": false
+          },
+          "state": {
+            "type": "string",
+            "title": "State",
+            "default": "unknown"
+          },
+          "waiting_context": {
+            "type": "string",
+            "title": "Waiting Context",
+            "default": ""
+          },
+          "bg_tasks": {
+            "type": "integer",
+            "title": "Bg Tasks",
+            "default": 0
+          },
+          "mcp_servers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Mcp Servers"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pid"
+        ],
+        "title": "ProcessResponse",
+        "description": "A running Copilot process as returned by GET /api/processes."
+      },
+      "RefResponse": {
+        "properties": {
+          "ref_type": {
+            "type": "string",
+            "title": "Ref Type"
+          },
+          "ref_value": {
+            "type": "string",
+            "title": "Ref Value"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ref_type",
+          "ref_value"
+        ],
+        "title": "RefResponse"
+      },
+      "ServerInfoResponse": {
+        "properties": {
+          "pid": {
+            "type": "integer",
+            "title": "Pid"
+          },
+          "port": {
+            "type": "string",
+            "title": "Port"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pid",
+          "port"
+        ],
+        "title": "ServerInfoResponse"
+      },
+      "SessionDetailResponse": {
+        "properties": {
+          "checkpoints": {
+            "items": {
+              "$ref": "#/components/schemas/CheckpointResponse"
+            },
+            "type": "array",
+            "title": "Checkpoints"
+          },
+          "refs": {
+            "items": {
+              "$ref": "#/components/schemas/RefResponse"
+            },
+            "type": "array",
+            "title": "Refs"
+          },
+          "turns": {
+            "items": {
+              "$ref": "#/components/schemas/TurnResponse"
+            },
+            "type": "array",
+            "title": "Turns"
+          },
+          "recent_output": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Recent Output"
+          },
+          "tool_counts": {
+            "items": {
+              "$ref": "#/components/schemas/ToolCountResponse"
+            },
+            "type": "array",
+            "title": "Tool Counts"
+          },
+          "files": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Files"
+          }
+        },
+        "type": "object",
+        "title": "SessionDetailResponse"
+      },
+      "SessionResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "cwd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cwd"
+          },
+          "repository": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repository"
+          },
+          "branch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Branch"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "title": "Updated At"
+          },
+          "created_ago": {
+            "type": "string",
+            "title": "Created Ago",
+            "default": ""
+          },
+          "time_ago": {
+            "type": "string",
+            "title": "Time Ago",
+            "default": ""
+          },
+          "turn_count": {
+            "type": "integer",
+            "title": "Turn Count",
+            "default": 0
+          },
+          "file_count": {
+            "type": "integer",
+            "title": "File Count",
+            "default": 0
+          },
+          "checkpoint_count": {
+            "type": "integer",
+            "title": "Checkpoint Count",
+            "default": 0
+          },
+          "is_running": {
+            "type": "boolean",
+            "title": "Is Running",
+            "default": false
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State"
+          },
+          "waiting_context": {
+            "type": "string",
+            "title": "Waiting Context",
+            "default": ""
+          },
+          "bg_tasks": {
+            "type": "integer",
+            "title": "Bg Tasks",
+            "default": 0
+          },
+          "group": {
+            "type": "string",
+            "title": "Group",
+            "default": "General"
+          },
+          "recent_activity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recent Activity"
+          },
+          "restart_cmd": {
+            "type": "string",
+            "title": "Restart Cmd",
+            "default": ""
+          },
+          "mcp_servers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Mcp Servers"
+          },
+          "tool_calls": {
+            "type": "integer",
+            "title": "Tool Calls",
+            "default": 0
+          },
+          "subagent_runs": {
+            "type": "integer",
+            "title": "Subagent Runs",
+            "default": 0
+          },
+          "intent": {
+            "type": "string",
+            "title": "Intent",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "SessionResponse",
+        "description": "A session as returned by GET /api/sessions."
+      },
+      "ToolCountResponse": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "count"
+        ],
+        "title": "ToolCountResponse"
+      },
+      "TurnResponse": {
+        "properties": {
+          "turn_index": {
+            "type": "integer",
+            "title": "Turn Index"
+          },
+          "user_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Message"
+          },
+          "assistant_response": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assistant Response"
+          }
+        },
+        "type": "object",
+        "required": [
+          "turn_index"
+        ],
+        "title": "TurnResponse"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "VersionResponse": {
+        "properties": {
+          "current": {
+            "type": "string",
+            "title": "Current"
+          },
+          "latest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest"
+          },
+          "update_available": {
+            "type": "boolean",
+            "title": "Update Available",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "current"
+        ],
+        "title": "VersionResponse"
+      }
+    }
+  }
+}

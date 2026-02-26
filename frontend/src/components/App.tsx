@@ -1,0 +1,169 @@
+/**
+ * Root application component — assembles all sub-components into the full
+ * dashboard layout and kicks off data-fetching on mount.
+ *
+ * Layout: Header → StatsRow → TabBar → SearchBar → TabPanels → Tooltip → Disconnect
+ */
+
+import { useEffect, useState, useCallback } from "react";
+import { AppProvider, useAppState, useAppDispatch } from "../state";
+import type { Tab } from "../state";
+import { useSessions } from "../hooks";
+import { fetchServerInfo } from "../api";
+import { filterSessions, splitActivePrevious } from "../utils";
+import Header from "./Header";
+import StatsRow from "./StatsRow";
+import TabBar from "./TabBar";
+import SearchBar from "./SearchBar";
+import SessionList from "./SessionList";
+import SessionGrid from "./SessionGrid";
+import Timeline from "./Timeline";
+import FilesTab from "./FilesTab";
+import DetailModal from "./DetailModal";
+import DisconnectOverlay from "./DisconnectOverlay";
+import Tooltip from "./Tooltip";
+
+/** Version injected at build time — falls back to "dev" during development. */
+const INITIAL_VERSION = "dev";
+
+function Dashboard() {
+  const state = useAppState();
+  const dispatch = useAppDispatch();
+  const { sessions, processes, currentTab, currentView, searchFilter } = state;
+
+  // Start polling
+  useSessions();
+
+  // Fetch server PID on mount
+  useEffect(() => {
+    fetchServerInfo()
+      .then((d) => dispatch({ type: "SET_SERVER_PID", pid: d.pid }))
+      .catch(() => {});
+  }, [dispatch]);
+
+  // Handle URL hash on mount (e.g. #timeline)
+  useEffect(() => {
+    const validTabs: Tab[] = ["active", "previous", "timeline", "files"];
+    const hashTab = location.hash.replace("#", "") as Tab;
+    if (validTabs.includes(hashTab)) {
+      dispatch({ type: "SET_TAB", tab: hashTab });
+    }
+  }, [dispatch]);
+
+  // Derived data: filter → split active/previous
+  const filtered = filterSessions(sessions, searchFilter);
+  const { active, previous } = splitActivePrevious(filtered, processes);
+
+  // Waiting count for header badge
+  const waitingCount = sessions.filter(
+    (s) => processes[s.id]?.state === "waiting",
+  ).length;
+
+  // Last updated — simply computed from session data presence
+  const lastUpdated = sessions.length > 0 ? new Date().toLocaleTimeString() : "-";
+
+  // Current timestamp for Timeline. Date.now() is inherently impure but required
+  // for a live timeline — the value refreshes on every poll-triggered re-render.
+  // eslint-disable-next-line react-hooks/purity
+  const now = Date.now();
+
+  // Timeline detail modal (opened from timeline bar clicks)
+  const [timelineModal, setTimelineModal] = useState<{
+    id: string;
+    title: string;
+  } | null>(null);
+  const handleTimelineDetail = useCallback(
+    (id: string, title: string) => setTimelineModal({ id, title }),
+    [],
+  );
+
+  return (
+    <>
+      <Header
+        initialVersion={INITIAL_VERSION}
+        lastUpdated={lastUpdated}
+        waitingCount={waitingCount}
+      />
+
+      <div className="container">
+        <StatsRow active={active} processes={processes} />
+        <TabBar activeCount={active.length} previousCount={previous.length} />
+        <SearchBar />
+
+        {/* Active panel */}
+        <div
+          className={`tab-panel ${currentTab === "active" ? "active" : ""}`}
+        >
+          {currentView === "tile" ? (
+            <SessionGrid sessions={active} processes={processes} isActive />
+          ) : (
+            <SessionList
+              sessions={active}
+              processes={processes}
+              isActive
+              panelId="panel-active"
+            />
+          )}
+        </div>
+
+        {/* Previous panel */}
+        <div
+          className={`tab-panel ${currentTab === "previous" ? "active" : ""}`}
+        >
+          {currentView === "tile" ? (
+            <SessionGrid sessions={previous} processes={processes} isActive={false} />
+          ) : (
+            <SessionList
+              sessions={previous}
+              processes={processes}
+              isActive={false}
+              panelId="panel-previous"
+            />
+          )}
+        </div>
+
+        {/* Timeline panel */}
+        <div
+          className={`tab-panel ${currentTab === "timeline" ? "active" : ""}`}
+        >
+          <Timeline
+            sessions={sessions}
+            processes={processes}
+            now={now}
+            onOpenDetail={handleTimelineDetail}
+          />
+        </div>
+
+        {/* Files panel */}
+        <div
+          className={`tab-panel ${currentTab === "files" ? "active" : ""}`}
+        >
+          {currentTab === "files" && <FilesTab />}
+        </div>
+      </div>
+
+      {/* Timeline detail modal (from clicking a Gantt bar) */}
+      {timelineModal && (
+        <DetailModal
+          sessionId={timelineModal.id}
+          title={timelineModal.title}
+          processes={processes}
+          sessions={sessions}
+          onClose={() => setTimelineModal(null)}
+        />
+      )}
+
+      <Tooltip />
+      <DisconnectOverlay />
+    </>
+  );
+}
+
+/** Wrapped with AppProvider so all children can access global state. */
+export default function App() {
+  return (
+    <AppProvider>
+      <Dashboard />
+    </AppProvider>
+  );
+}

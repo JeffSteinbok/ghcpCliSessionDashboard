@@ -1,8 +1,6 @@
 """
 Copilot Dashboard - CLI entry point.
 Provides start, stop, and status subcommands.
-
-Requires Python >= 3.12.
 """
 
 import argparse
@@ -12,12 +10,10 @@ import signal
 import subprocess
 import sys
 
-if sys.version_info < (3, 12):
-    sys.exit("Error: Python >= 3.12 is required. Found: " + sys.version)
+from .constants import DEFAULT_PORT, LOCALHOST, MIN_PYTHON_VERSION, PYTHON_VERSION_TIMEOUT
 
 PKG_DIR = os.path.dirname(os.path.abspath(__file__))
 PID_FILE = os.path.join(PKG_DIR, ".dashboard.pid")
-DEFAULT_PORT = 5111
 
 from .__version__ import __repository__, __version__  # noqa: E402
 
@@ -29,9 +25,8 @@ BANNER = f"""\
 
 
 def _find_python():
-    """Find a Python >= 3.12 interpreter, preferring the py launcher on Windows."""
-    # If the current interpreter is good enough, use it
-    if sys.version_info >= (3, 12):
+    """Find a suitable Python interpreter, preferring the py launcher on Windows."""
+    if sys.version_info >= MIN_PYTHON_VERSION:
         return sys.executable
 
     # Try the py launcher (Windows)
@@ -42,19 +37,19 @@ def _find_python():
                 [py, "-3", "--version"],
                 capture_output=True,
                 text=True,
-                timeout=5,
+                timeout=PYTHON_VERSION_TIMEOUT,
                 check=False,
             )
             if result.returncode == 0:
                 ver = result.stdout.strip().split()[-1]  # "3.14.3"
                 major, minor = (int(x) for x in ver.split(".")[:2])
-                if major >= 3 and minor >= 12:
+                if major >= MIN_PYTHON_VERSION[0] and minor >= MIN_PYTHON_VERSION[1]:
                     return f"{py} -3"
         except Exception:
             pass
 
     # Fallback: search PATH for python3.x
-    for minor in range(14, 11, -1):
+    for minor in range(14, 10, -1):
         candidate = shutil.which(f"python3.{minor}")
         if candidate:
             return candidate
@@ -63,10 +58,15 @@ def _find_python():
 
 
 def cmd_serve(args):
-    """Internal: run the Flask app in-process (used by --background)."""
-    from .dashboard_app import app
+    """Internal: run the uvicorn server in-process (used by --background)."""
+    import uvicorn
 
-    app.run(host="127.0.0.1", port=args.port, debug=False)
+    uvicorn.run(
+        "src.dashboard_api:app",
+        host=LOCALHOST,
+        port=args.port,
+        log_level="warning",
+    )
 
 
 def cmd_start(args):
@@ -122,10 +122,15 @@ def cmd_start(args):
         with open(PID_FILE, "w", encoding="utf-8") as f:
             f.write(str(os.getpid()))
         try:
-            from .dashboard_app import app
+            import uvicorn
 
             print(BANNER.format(port=args.port))
-            app.run(host="127.0.0.1", port=args.port, debug=False)
+            uvicorn.run(
+                "src.dashboard_api:app",
+                host=LOCALHOST,
+                port=args.port,
+                log_level="warning",
+            )
         finally:
             if os.path.exists(PID_FILE):
                 os.remove(PID_FILE)
