@@ -38,6 +38,7 @@ class SessionResponse(BaseModel):
     tool_calls: int = 0
     subagent_runs: int = 0
     intent: str = ""
+    source: str = "copilot"
 
 
 # ── Process map (/api/processes) ─────────────────────────────────────────────

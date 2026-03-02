@@ -274,6 +274,8 @@ class TestApiSessions:
             patch("src.dashboard_api.DB_PATH", db_path),
             patch("src.dashboard_api.get_running_sessions", return_value={}),
             patch("src.dashboard_api.get_session_event_data", return_value=EventData()),
+            patch("src.dashboard_api.get_claude_sessions", return_value=[]),
+            patch("src.dashboard_api.get_running_claude_sessions", return_value={}),
         ):
             resp = client.get("/api/sessions")
         assert resp.status_code == 200
@@ -284,10 +286,15 @@ class TestApiSessions:
 
     def test_returns_503_when_db_missing(self, client, tmp_path):
         missing = str(tmp_path / "nonexistent.db")
-        with patch("src.dashboard_api.DB_PATH", missing):
+        with (
+            patch("src.dashboard_api.DB_PATH", missing),
+            patch("src.dashboard_api.get_claude_sessions", return_value=[]),
+            patch("src.dashboard_api.get_running_claude_sessions", return_value={}),
+        ):
             resp = client.get("/api/sessions")
-        assert resp.status_code == 503
-        assert "error" in resp.json()
+        # With no Copilot DB and no Claude sessions, we get an empty list (not 503)
+        assert resp.status_code == 200
+        assert resp.json() == []
 
     def test_running_session_enriched(self, client, populated_db):
         _conn, db_path = populated_db
@@ -305,6 +312,8 @@ class TestApiSessions:
             patch("src.dashboard_api.DB_PATH", db_path),
             patch("src.dashboard_api.get_running_sessions", return_value=running),
             patch("src.dashboard_api.get_session_event_data", return_value=EventData()),
+            patch("src.dashboard_api.get_claude_sessions", return_value=[]),
+            patch("src.dashboard_api.get_running_claude_sessions", return_value={}),
         ):
             resp = client.get("/api/sessions")
         data = resp.json()
@@ -382,14 +391,20 @@ class TestApiFocus:
 
 class TestApiKill:
     def test_session_not_found(self, client):
-        with patch("src.dashboard_api.get_running_sessions", return_value={}):
+        with (
+            patch("src.dashboard_api.get_running_sessions", return_value={}),
+            patch("src.dashboard_api.get_running_claude_sessions", return_value={}),
+        ):
             resp = client.post("/api/kill/sess-1")
         assert resp.status_code == 404
         assert resp.json()["success"] is False
 
     def test_no_pid_available(self, client):
         running = {"sess-1": ProcessInfo(pid=0, state="working", cmdline="copilot --resume sess-1")}
-        with patch("src.dashboard_api.get_running_sessions", return_value=running):
+        with (
+            patch("src.dashboard_api.get_running_sessions", return_value=running),
+            patch("src.dashboard_api.get_running_claude_sessions", return_value={}),
+        ):
             resp = client.post("/api/kill/sess-1")
         assert resp.status_code == 404
         assert resp.json()["success"] is False
@@ -398,6 +413,7 @@ class TestApiKill:
         running = {"sess-1": ProcessInfo(pid=1234, state="working", cmdline="copilot --resume sess-1")}
         with (
             patch("src.dashboard_api.get_running_sessions", return_value=running),
+            patch("src.dashboard_api.get_running_claude_sessions", return_value={}),
             patch("src.dashboard_api.sys.platform", "linux"),
             patch("src.dashboard_api.os.kill") as mock_kill,
         ):
@@ -412,6 +428,7 @@ class TestApiKill:
         running = {"sess-1": ProcessInfo(pid=5678, state="working", cmdline="copilot --resume sess-1")}
         with (
             patch("src.dashboard_api.get_running_sessions", return_value=running),
+            patch("src.dashboard_api.get_running_claude_sessions", return_value={}),
             patch("src.dashboard_api.sys.platform", "win32"),
             patch("src.dashboard_api.subprocess.run") as mock_run,
         ):
@@ -427,6 +444,7 @@ class TestApiKill:
         running = {"sess-1": ProcessInfo(pid=1234, state="working", cmdline="copilot --resume sess-1")}
         with (
             patch("src.dashboard_api.get_running_sessions", return_value=running),
+            patch("src.dashboard_api.get_running_claude_sessions", return_value={}),
             patch("src.dashboard_api.sys.platform", "linux"),
             patch("src.dashboard_api.os.kill", side_effect=OSError("no such process")),
         ):

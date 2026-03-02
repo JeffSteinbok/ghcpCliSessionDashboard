@@ -69,6 +69,8 @@ class TestBackfillFromEvents:
             patch("src.dashboard_api.DB_PATH", db_path),
             patch("src.dashboard_api.get_running_sessions", return_value={}),
             patch("src.dashboard_api.get_session_event_data", return_value=evt),
+            patch("src.dashboard_api.get_claude_sessions", return_value=[]),
+            patch("src.dashboard_api.get_running_claude_sessions", return_value={}),
         ):
             resp = client.get("/api/sessions")
         data = resp.json()
@@ -90,6 +92,8 @@ class TestBackfillFromEvents:
             patch("src.dashboard_api.DB_PATH", db_path),
             patch("src.dashboard_api.get_running_sessions", return_value={}),
             patch("src.dashboard_api.get_session_event_data", return_value=evt),
+            patch("src.dashboard_api.get_claude_sessions", return_value=[]),
+            patch("src.dashboard_api.get_running_claude_sessions", return_value={}),
         ):
             resp = client.get("/api/sessions")
         data = resp.json()

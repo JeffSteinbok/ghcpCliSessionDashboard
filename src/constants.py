@@ -32,6 +32,9 @@ SESSION_STATE_DIR = os.path.join(COPILOT_DIR, "session-state")
 SESSION_STORE_DB = os.path.join(COPILOT_DIR, "session-store.db")
 DASHBOARD_CONFIG_PATH = os.path.join(COPILOT_DIR, "dashboard-config.json")
 
+CLAUDE_DIR = os.path.join(os.path.expanduser("~"), ".claude")
+CLAUDE_PROJECTS_DIR = os.path.join(CLAUDE_DIR, "projects")
+
 # ── Polling & cache intervals (seconds) ──────────────────────────────────────
 
 RUNNING_CACHE_TTL = 5

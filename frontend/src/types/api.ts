@@ -51,6 +51,7 @@ export interface Session {
   tool_calls: number;
   subagent_runs: number;
   intent: string;
+  source: "copilot" | "claude";
 }
 
 /** Checkpoint detail returned within GET /api/session/:id. */

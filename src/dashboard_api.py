@@ -30,6 +30,14 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .__version__ import __version__
+from .claude_code import (
+    SESSION_ID_PREFIX as CC_PREFIX,
+)
+from .claude_code import (
+    get_claude_session_detail,
+    get_claude_sessions,
+    get_running_claude_sessions,
+)
 from .constants import (
     PYPI_FETCH_TIMEOUT,
     PYPI_PACKAGE_URL,
@@ -61,8 +69,8 @@ from .schemas import (
 
 logger = logging.getLogger(__name__)
 
-# Strict pattern for session IDs — only UUID-like strings allowed
-_SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
+# Strict pattern for session IDs — UUID-like strings, optionally prefixed with "cc:"
+_SESSION_ID_RE = re.compile(r"^(cc:)?[a-zA-Z0-9_-]+$")
 
 # ── App setup ────────────────────────────────────────────────────────────────
 
@@ -256,31 +264,51 @@ def _enrich_session(s: dict, proc: ProcessInfo | None, evt: EventData) -> dict:
 @app.get("/api/sessions", response_model=list[SessionResponse])
 def api_sessions():
     """List all sessions with enriched metadata."""
+    result: list[dict] = []
+
+    # ── Copilot CLI sessions ──
     try:
         db = get_db()
-    except FileNotFoundError as e:
-        return JSONResponse({"error": str(e)}, status_code=503)
-    try:
-        rows = db.execute(_SESSIONS_QUERY).fetchall()
-    finally:
-        db.close()
+        try:
+            rows = db.execute(_SESSIONS_QUERY).fetchall()
+        finally:
+            db.close()
 
-    running = get_running_sessions()
-    result = []
-    for r in rows:
-        s = dict(r)
-        proc = running.get(s["id"])
-        evt = get_session_event_data(s["id"], is_running=proc is not None)
-        result.append(_enrich_session(s, proc, evt))
+        running = get_running_sessions()
+        for r in rows:
+            s = dict(r)
+            s["source"] = "copilot"
+            proc = running.get(s["id"])
+            evt = get_session_event_data(s["id"], is_running=proc is not None)
+            result.append(_enrich_session(s, proc, evt))
+    except FileNotFoundError:
+        logger.debug("Copilot session store not found, skipping Copilot sessions")
+
+    # ── Claude Code sessions ──
+    try:
+        claude_running = get_running_claude_sessions()
+        claude_sessions = get_claude_sessions(running=claude_running)
+        result.extend(claude_sessions)
+    except Exception as e:
+        logger.debug("Error loading Claude Code sessions: %s", e)
+
+    # Sort all sessions by updated_at descending
+    result.sort(key=lambda s: s.get("updated_at", ""), reverse=True)
     return result
 
 
-@app.get("/api/session/{session_id}", response_model=SessionDetailResponse)
+@app.get("/api/session/{session_id:path}", response_model=SessionDetailResponse)
 def api_session_detail(session_id: str):
     """Get detailed info for a single session."""
     err = _validate_session_id(session_id)
     if err:
         return JSONResponse({"error": err}, status_code=400)
+
+    # Route Claude Code sessions to their own reader
+    if session_id.startswith(CC_PREFIX):
+        raw_id = session_id[len(CC_PREFIX) :]
+        return get_claude_session_detail(raw_id)
+
     try:
         db = get_db()
     except FileNotFoundError as e:
@@ -358,17 +386,30 @@ def api_files():
 
 @app.get("/api/processes", response_model=dict[str, ProcessResponse])
 def api_processes():
-    """Return currently running copilot sessions mapped by session ID."""
-    return {sid: asdict(info) for sid, info in get_running_sessions().items()}
+    """Return currently running copilot and Claude sessions mapped by session ID."""
+    result = {sid: asdict(info) for sid, info in get_running_sessions().items()}
+    try:
+        claude = get_running_claude_sessions()
+        result.update({sid: asdict(info) for sid, info in claude.items()})
+    except Exception as e:
+        logger.debug("Error getting Claude processes: %s", e)
+    return result
 
 
-@app.post("/api/kill/{session_id}", response_model=ActionResponse)
+@app.post("/api/kill/{session_id:path}", response_model=ActionResponse)
 def api_kill(session_id: str):
     """Kill the process for a running session."""
     err = _validate_session_id(session_id)
     if err:
         return JSONResponse({"error": err}, status_code=400)
-    running = get_running_sessions()
+
+    # Check both Copilot and Claude running sessions
+    running: dict[str, ProcessInfo] = dict(get_running_sessions())
+    try:
+        running.update(get_running_claude_sessions())
+    except Exception:
+        pass
+
     if session_id not in running:
         return JSONResponse(
             {"success": False, "message": "Session not found among running processes"},
@@ -378,10 +419,11 @@ def api_kill(session_id: str):
     pid = info.pid
     if not pid:
         return JSONResponse({"success": False, "message": "PID not available"}, status_code=404)
-    # Only kill processes whose command line contains "copilot"
-    if "copilot" not in info.cmdline.lower():
+    # Only kill processes whose command line contains "copilot" or "claude"
+    cmd_lower = info.cmdline.lower()
+    if "copilot" not in cmd_lower and "claude" not in cmd_lower:
         return JSONResponse(
-            {"success": False, "message": "Process is not a recognized Copilot process"},
+            {"success": False, "message": "Process is not a recognized AI assistant process"},
             status_code=403,
         )
     try:
@@ -394,7 +436,7 @@ def api_kill(session_id: str):
         return JSONResponse({"success": False, "message": str(e)}, status_code=500)
 
 
-@app.post("/api/focus/{session_id}", response_model=ActionResponse)
+@app.post("/api/focus/{session_id:path}", response_model=ActionResponse)
 def api_focus(session_id: str):
     """Focus the terminal window for a running session."""
     err = _validate_session_id(session_id)
