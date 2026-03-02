@@ -504,6 +504,8 @@ def _get_running_claude_windows() -> dict[str, ProcessInfo]:
             terminal_pid=terminal_pid,
             terminal_name=terminal_name,
             cmdline=cmd,
+            state="idle",
+            waiting_context="Session idle — waiting for user message",
         )
         # Claude Code uses --session-id <id> or --resume <id>
         sid = _extract_session_id_from_cmdline(cmd)
@@ -573,6 +575,8 @@ def _get_running_claude_unix() -> dict[str, ProcessInfo]:
             terminal_pid=terminal_pid,
             terminal_name=terminal_name,
             cmdline=cmd,
+            state="idle",
+            waiting_context="Session idle — waiting for user message",
         )
 
         sid = _extract_session_id_from_cmdline(cmd)

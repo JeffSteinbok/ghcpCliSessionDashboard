@@ -9,9 +9,13 @@ import pytest
 from src.claude_code import (
     SESSION_ID_PREFIX,
     _build_restart_cmd,
+    _decode_project_dir,
+    _extract_first_prompt_text,
+    _extract_session_id_from_cmdline,
     _extract_text_from_content,
     _extract_tool_uses,
     _find_transcript,
+    _session_from_transcript,
     get_claude_session_detail,
     get_claude_sessions,
 )
@@ -276,3 +280,180 @@ class TestFindTranscript:
     def test_returns_none_for_missing(self, claude_projects):
         with patch("src.claude_code.CLAUDE_PROJECTS_DIR", claude_projects):
             assert _find_transcript("nonexistent") is None
+
+
+# ── _extract_session_id_from_cmdline ─────────────────────────────────────────
+
+
+class TestExtractSessionIdFromCmdline:
+    def test_session_id_flag(self):
+        cmd = '"claude.exe" --session-id abc-123 --mcp-config foo.json'
+        assert _extract_session_id_from_cmdline(cmd) == "abc-123"
+
+    def test_resume_flag(self):
+        cmd = "claude --resume def-456"
+        assert _extract_session_id_from_cmdline(cmd) == "def-456"
+
+    def test_quoted_id(self):
+        cmd = 'claude --session-id "ghi-789" --other flag'
+        assert _extract_session_id_from_cmdline(cmd) == "ghi-789"
+
+    def test_no_session_flag(self):
+        cmd = "claude --help"
+        assert _extract_session_id_from_cmdline(cmd) is None
+
+    def test_session_id_preferred_over_resume(self):
+        cmd = "claude --session-id first-id --resume second-id"
+        assert _extract_session_id_from_cmdline(cmd) == "first-id"
+
+
+# ── _decode_project_dir ──────────────────────────────────────────────────────
+
+
+class TestDecodeProjectDir:
+    def test_windows_path(self):
+        with patch("src.claude_code.sys") as mock_sys:
+            mock_sys.platform = "win32"
+            result = _decode_project_dir("C--Users-jeffstei-myproject")
+        assert result == "C:\\Users\\jeffstei\\myproject"
+
+    def test_unix_path(self):
+        with patch("src.claude_code.sys") as mock_sys:
+            mock_sys.platform = "linux"
+            result = _decode_project_dir("home-user-projects-myapp")
+        assert result == "/home/user/projects/myapp"
+
+
+# ── _extract_first_prompt_text ───────────────────────────────────────────────
+
+
+class TestExtractFirstPromptText:
+    def test_nested_message_content(self):
+        msg = {"message": {"role": "user", "content": "Fix the bug"}}
+        assert _extract_first_prompt_text(msg) == "Fix the bug"
+
+    def test_content_blocks(self):
+        msg = {
+            "message": {
+                "role": "user",
+                "content": [{"type": "text", "text": "Hello there"}],
+            }
+        }
+        assert _extract_first_prompt_text(msg) == "Hello there"
+
+    def test_falls_back_to_top_level_content(self):
+        msg = {"content": "Top level text"}
+        assert _extract_first_prompt_text(msg) == "Top level text"
+
+    def test_empty_message(self):
+        assert _extract_first_prompt_text({}) == ""
+
+
+# ── _session_from_transcript ─────────────────────────────────────────────────
+
+
+class TestSessionFromTranscript:
+    def test_parses_transcript(self, claude_projects):
+        jsonl_path = os.path.join(claude_projects, "C--Users-test-myproject", "aaaa-1111.jsonl")
+        result = _session_from_transcript("aaaa-1111", jsonl_path, "C:\\Users\\test\\myproject", None)
+
+        assert result is not None
+        assert result["id"] == f"{SESSION_ID_PREFIX}aaaa-1111"
+        assert result["summary"] == "Fix the login bug"
+        assert result["source"] == "claude"
+        assert result["is_running"] is False
+        assert result["turn_count"] > 0
+
+    def test_missing_file_returns_none(self, tmp_path):
+        result = _session_from_transcript("nope", str(tmp_path / "nope.jsonl"), "/tmp", None)
+        assert result is None
+
+    def test_with_running_process(self, claude_projects):
+        from src.models import ProcessInfo
+
+        proc = ProcessInfo(pid=999, state="idle", waiting_context="Waiting")
+        jsonl_path = os.path.join(claude_projects, "C--Users-test-myproject", "aaaa-1111.jsonl")
+        result = _session_from_transcript("aaaa-1111", jsonl_path, "/tmp", proc)
+
+        assert result["is_running"] is True
+        assert result["state"] == "idle"
+
+
+# ── Unindexed JSONL discovery ────────────────────────────────────────────────
+
+
+class TestUnindexedSessionDiscovery:
+    def test_discovers_unindexed_jsonl(self, claude_projects):
+        """Sessions with JSONL files but not in sessions-index.json are found."""
+        project = os.path.join(claude_projects, "C--Users-test-myproject")
+        # Create an unindexed transcript
+        unindexed = [
+            json.dumps({
+                "type": "user",
+                "message": {"role": "user", "content": "Unindexed session prompt"},
+                "timestamp": "2026-03-01T12:00:00Z",
+            }),
+            json.dumps({
+                "type": "assistant",
+                "message": {"role": "assistant", "content": [{"type": "text", "text": "OK"}]},
+                "timestamp": "2026-03-01T12:00:05Z",
+            }),
+        ]
+        with open(os.path.join(project, "cccc-3333.jsonl"), "w", encoding="utf-8") as f:
+            f.write("\n".join(unindexed))
+
+        with patch("src.claude_code.CLAUDE_PROJECTS_DIR", claude_projects):
+            sessions = get_claude_sessions()
+
+        assert len(sessions) == 3  # 2 indexed + 1 unindexed
+        unindexed_session = next(s for s in sessions if s["id"] == f"{SESSION_ID_PREFIX}cccc-3333")
+        assert unindexed_session["summary"] == "Unindexed session prompt"
+        assert unindexed_session["source"] == "claude"
+
+    def test_no_index_file_still_finds_jsonl(self, tmp_path):
+        """Project dir with no sessions-index.json still discovers JSONL files."""
+        projects_dir = tmp_path / "projects"
+        project = projects_dir / "D--work-repo"
+        project.mkdir(parents=True)
+        transcript = [
+            json.dumps({
+                "type": "user",
+                "message": {"role": "user", "content": "Hello"},
+                "timestamp": "2026-03-01T12:00:00Z",
+            }),
+        ]
+        (project / "dddd-4444.jsonl").write_text("\n".join(transcript), encoding="utf-8")
+
+        with patch("src.claude_code.CLAUDE_PROJECTS_DIR", str(projects_dir)):
+            sessions = get_claude_sessions()
+
+        assert len(sessions) == 1
+        assert sessions[0]["id"] == f"{SESSION_ID_PREFIX}dddd-4444"
+
+
+# ── Process state defaults ───────────────────────────────────────────────────
+
+
+class TestProcessStateDefaults:
+    def test_windows_process_defaults_to_idle(self):
+        """Claude processes detected on Windows should default to idle state."""
+        from src.claude_code import _get_running_claude_windows
+
+        fake_ps_output = json.dumps([
+            {
+                "ProcessId": 12345,
+                "ParentProcessId": 100,
+                "Name": "claude.exe",
+                "CommandLine": "claude.exe --session-id test-session-1",
+                "CreatedUTC": "2026-03-02T10:00:00Z",
+            },
+        ])
+        with patch("src.claude_code.subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            mock_run.return_value.stdout = fake_ps_output
+            result = _get_running_claude_windows()
+
+        assert f"{SESSION_ID_PREFIX}test-session-1" in result
+        proc = result[f"{SESSION_ID_PREFIX}test-session-1"]
+        assert proc.state == "idle"
+        assert "waiting for user message" in proc.waiting_context
