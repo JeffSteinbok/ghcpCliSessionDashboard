@@ -478,8 +478,8 @@ def api_update(request: Request):
     script_lines = [
         "import subprocess, sys, os, signal, time, shutil",
         "time.sleep(2)",
-        "subprocess.run([sys.executable, '-m', 'pip', 'install', '--upgrade', 'ghcp-cli-dashboard'],"
-        " check=False, capture_output=True)",
+        # Kill the server BEFORE pip upgrade to release file locks and
+        # avoid corrupting the pip cache on Windows.
         f"pid = {server_pid}",
         "try:",
         "    if sys.platform == 'win32':",
@@ -489,6 +489,9 @@ def api_update(request: Request):
         "except Exception:",
         "    pass",
         "time.sleep(1)",
+        "subprocess.run([sys.executable, '-m', 'pip', 'install', '--no-cache-dir',"
+        " '--upgrade', 'ghcp-cli-dashboard'],"
+        " check=False, capture_output=True)",
         "cmd = shutil.which('copilot-dashboard')",
         "if cmd:",
         "    kw = {'stdout': subprocess.DEVNULL, 'stderr': subprocess.DEVNULL}",
