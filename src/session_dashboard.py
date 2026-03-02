@@ -169,6 +169,96 @@ def cmd_stop(_args):
             os.remove(PID_FILE)
 
 
+def cmd_upgrade(_args):
+    """Upgrade the dashboard via pip and restart if it was running."""
+    from .__version__ import __version__ as old_version
+
+    # Remember if server was running (and on which port) so we can restart
+    pid = _read_pid_file()
+    was_running = False
+    port = DEFAULT_PORT
+    if pid is not None:
+        try:
+            os.kill(pid, 0)
+            was_running = True
+            # Try to read port from the running server
+            try:
+                import urllib.request
+
+                with urllib.request.urlopen(
+                    f"http://{LOCALHOST}:{DEFAULT_PORT}/api/server-info", timeout=3
+                ) as resp:
+                    import json
+
+                    info = json.loads(resp.read())
+                    port = int(info.get("port", DEFAULT_PORT))
+            except Exception:
+                pass
+        except OSError:
+            pass
+
+    # Stop the server first to release file locks (important on Windows)
+    if was_running:
+        print(f"Stopping dashboard (PID {pid})…")
+        try:
+            if sys.platform == "win32":
+                subprocess.run(
+                    ["taskkill", "/F", "/PID", str(pid)], capture_output=True, check=False
+                )
+            else:
+                os.kill(pid, signal.SIGTERM)
+        except Exception:
+            pass
+        if os.path.exists(PID_FILE):
+            os.remove(PID_FILE)
+
+    # Run pip upgrade
+    print("Upgrading ghcp-cli-dashboard…")
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--no-cache-dir",
+            "--upgrade",
+            "ghcp-cli-dashboard",
+        ],
+        check=False,
+    )
+    if result.returncode != 0:
+        print("Upgrade failed.")
+        return
+
+    # Report version change
+    try:
+        ver_out = subprocess.run(
+            [sys.executable, "-c", "from src.__version__ import __version__; print(__version__)"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        new_version = ver_out.stdout.strip() if ver_out.returncode == 0 else "unknown"
+    except Exception:
+        new_version = "unknown"
+    print(f"Upgraded: v{old_version} → v{new_version}")
+
+    # Restart if it was running
+    if was_running:
+        print(f"Restarting dashboard on port {port}…")
+        cmd = shutil.which("copilot-dashboard")
+        if cmd:
+            kwargs: dict = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+            if sys.platform == "win32":
+                kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW | 0x00000008
+            else:
+                kwargs["start_new_session"] = True
+            subprocess.Popen([cmd, "start", "--background", "--port", str(port)], **kwargs)
+            print(f"Dashboard restarted at http://localhost:{port}")
+        else:
+            print("Could not find copilot-dashboard command to restart. Start it manually.")
+
+
 def cmd_status(_args):
     """Check if the dashboard is running."""
     pid = _read_pid_file()
@@ -196,6 +286,7 @@ def main():
             "  copilot-dashboard start -b --port 8080   Background on custom port\n"
             "  copilot-dashboard stop                   Stop the background server\n"
             "  copilot-dashboard status                 Check if server is running\n"
+            "  copilot-dashboard upgrade                Upgrade to latest version\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -214,6 +305,7 @@ def main():
 
     sub.add_parser("stop", help="Stop the background dashboard server")
     sub.add_parser("status", help="Check if the dashboard server is running")
+    sub.add_parser("upgrade", help="Upgrade to the latest version from PyPI")
 
     serve_p = sub.add_parser("_serve", help=argparse.SUPPRESS)
     serve_p.add_argument("--port", type=int, default=DEFAULT_PORT)
@@ -228,6 +320,7 @@ def main():
         "_serve": cmd_serve,
         "stop": cmd_stop,
         "status": cmd_status,
+        "upgrade": cmd_upgrade,
     }[args.command](args)
 
 
