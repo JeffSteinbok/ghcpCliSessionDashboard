@@ -393,8 +393,8 @@ def api_sessions():
         claude_running = get_running_claude_sessions()
         claude_sessions = get_claude_sessions(running=claude_running)
         result.extend(claude_sessions)
-    except Exception as e:
-        logger.debug("Error loading Claude Code sessions: %s", e)
+    except Exception:
+        logger.exception("Error loading Claude Code sessions")
 
     # Sort all sessions by updated_at descending
     result.sort(key=lambda s: s.get("updated_at", ""), reverse=True)

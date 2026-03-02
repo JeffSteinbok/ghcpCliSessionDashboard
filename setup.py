@@ -31,7 +31,10 @@ setup(
     license="MIT",
     packages=find_packages(exclude=["tests", "tests.*"]),
     include_package_data=True,
-    install_requires=requirements + ['pywin32; sys_platform == "win32"'],
+    install_requires=requirements + [
+        'pywin32; sys_platform == "win32"',
+        'pywinauto; sys_platform == "win32"',
+    ],
     python_requires=">=3.11",
     entry_points={
         "console_scripts": [

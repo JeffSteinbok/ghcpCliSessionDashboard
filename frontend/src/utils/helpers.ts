@@ -104,13 +104,34 @@ export function splitActivePrevious(
  * Sort sessions with starred items first.
  * Preserves original order within each group (starred / unstarred).
  */
+const STATE_PRIORITY: Record<string, number> = {
+  working: 0,
+  thinking: 1,
+  waiting: 2,
+  idle: 3,
+  unknown: 4,
+};
+
 export function sortStarredFirst(
   sessions: Session[],
   starred: Set<string>,
 ): Session[] {
-  if (starred.size === 0) return sessions;
-  return [...sessions].sort(
-    (a, b) =>
-      (starred.has(b.id) ? 1 : 0) - (starred.has(a.id) ? 1 : 0),
-  );
+  return [...sessions].sort((a, b) => {
+    // Running sessions first
+    if (a.is_running !== b.is_running) return a.is_running ? -1 : 1;
+    // Then starred
+    if (starred.size > 0) {
+      const sa = starred.has(a.id) ? 1 : 0;
+      const sb = starred.has(b.id) ? 1 : 0;
+      if (sa !== sb) return sb - sa;
+    }
+    // Among running: sort by state (working > thinking > waiting > idle)
+    if (a.is_running && b.is_running && a.state !== b.state) {
+      const pa = STATE_PRIORITY[a.state ?? "unknown"] ?? 4;
+      const pb = STATE_PRIORITY[b.state ?? "unknown"] ?? 4;
+      if (pa !== pb) return pa - pb;
+    }
+    // Then by most recent activity (updated_at descending)
+    return b.updated_at.localeCompare(a.updated_at);
+  });
 }

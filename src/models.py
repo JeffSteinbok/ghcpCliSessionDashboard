@@ -22,6 +22,7 @@ class ProcessInfo:
     bg_tasks: int = 0
     bg_task_list: list[BackgroundTask] = field(default_factory=list)
     mcp_servers: list[str] = field(default_factory=list)
+    window_title: str = ""
 
 
 @dataclass

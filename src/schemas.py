@@ -66,6 +66,7 @@ class ProcessResponse(BaseModel):
     bg_tasks: int = 0
     bg_task_list: list[BackgroundTaskResponse] = Field(default_factory=list)
     mcp_servers: list[str] = Field(default_factory=list)
+    window_title: str = ""
 
 
 # ── Session detail (/api/session/{id}) ───────────────────────────────────────

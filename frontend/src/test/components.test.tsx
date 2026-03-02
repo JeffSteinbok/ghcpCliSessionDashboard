@@ -52,6 +52,7 @@ function makeProcess(overrides: Partial<ProcessInfo> = {}): ProcessInfo {
     bg_tasks: 0,
     bg_task_list: [],
     mcp_servers: [],
+    window_title: "",
     ...overrides,
   };
 }
