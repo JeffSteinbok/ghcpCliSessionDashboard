@@ -69,6 +69,11 @@ export default function SessionTile({ session: s, processInfo, onOpenDetail }: S
         >
           {isRunning && s.intent ? `🤖 ${s.intent}` : s.summary || "(Untitled session)"}
         </div>
+        {isRunning && processInfo?.window_title && processInfo.window_title !== s.summary && (
+          <div className="tile-subtitle" style={{ opacity: 0.7 }} data-tip={`Window: ${processInfo.window_title}`}>
+            🪟 {processInfo.window_title}
+          </div>
+        )}
         {isRunning && processInfo!.yolo && (
           <span className="badge badge-yolo" style={{ flexShrink: 0 }}>🔥</span>
         )}

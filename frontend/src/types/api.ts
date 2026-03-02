@@ -24,6 +24,7 @@ export interface ProcessInfo {
   bg_tasks: number;
   bg_task_list: BackgroundTask[];
   mcp_servers: string[];
+  window_title: string;
 }
 
 /** A session as returned by GET /api/sessions. */

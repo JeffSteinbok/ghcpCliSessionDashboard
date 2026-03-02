@@ -110,6 +110,7 @@ describe("splitActivePrevious()", () => {
         bg_tasks: 0,
         bg_task_list: [],
         mcp_servers: [],
+        window_title: "",
       },
     };
 
@@ -152,13 +153,33 @@ describe("groupSessions()", () => {
 describe("sortStarredFirst()", () => {
   it("puts starred sessions first", () => {
     const sessions = [
-      makeSession({ id: "a" }),
-      makeSession({ id: "b" }),
-      makeSession({ id: "c" }),
+      makeSession({ id: "a", updated_at: "2026-01-01T03:00:00Z" }),
+      makeSession({ id: "b", updated_at: "2026-01-01T02:00:00Z" }),
+      makeSession({ id: "c", updated_at: "2026-01-01T01:00:00Z" }),
     ];
     const starred = new Set(["c"]);
     const sorted = sortStarredFirst(sessions, starred);
     expect(sorted[0].id).toBe("c");
+  });
+
+  it("puts running sessions before non-running", () => {
+    const sessions = [
+      makeSession({ id: "a", is_running: false, updated_at: "2026-01-01T03:00:00Z" }),
+      makeSession({ id: "b", is_running: true, updated_at: "2026-01-01T01:00:00Z" }),
+      makeSession({ id: "c", is_running: false, updated_at: "2026-01-01T02:00:00Z" }),
+    ];
+    const sorted = sortStarredFirst(sessions, new Set());
+    expect(sorted[0].id).toBe("b");
+  });
+
+  it("sorts by updated_at within same priority", () => {
+    const sessions = [
+      makeSession({ id: "a", updated_at: "2026-01-01T01:00:00Z" }),
+      makeSession({ id: "b", updated_at: "2026-01-01T03:00:00Z" }),
+      makeSession({ id: "c", updated_at: "2026-01-01T02:00:00Z" }),
+    ];
+    const sorted = sortStarredFirst(sessions, new Set());
+    expect(sorted.map(s => s.id)).toEqual(["b", "c", "a"]);
   });
 });
 

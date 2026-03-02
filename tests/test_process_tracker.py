@@ -1051,7 +1051,7 @@ class TestFocusSessionWindowWindows:
                 "sys.modules",
                 {"win32gui": mock_win32gui, "win32process": mock_win32process, "win32con": mock_win32con},
             ),
-            patch("src.process_tracker.subprocess.run", mock_subprocess),
+            patch("src.process_tracker._build_diagnostics", return_value="diag"),
         ):
             ok, msg = _focus_session_window_windows("sess-1", sessions)
         assert ok is False
@@ -1069,14 +1069,12 @@ class TestFocusSessionWindowWindows:
         # EnumWindows calls callback but no window matches
         mock_win32gui.EnumWindows = MagicMock(side_effect=lambda cb, _: None)
 
-        mock_subprocess = MagicMock(return_value=MagicMock(returncode=1, stdout=""))
-
         with (
             patch.dict(
                 "sys.modules",
                 {"win32gui": mock_win32gui, "win32process": mock_win32process, "win32con": mock_win32con},
             ),
-            patch("src.process_tracker.subprocess.run", mock_subprocess),
+            patch("src.process_tracker._build_diagnostics", return_value="diag"),
         ):
             ok, msg = _focus_session_window_windows("sess-1", sessions)
         assert ok is False
@@ -1115,9 +1113,10 @@ class TestFocusSessionWindowWindows:
                 {"win32gui": mock_win32gui, "win32process": mock_win32process, "win32con": mock_win32con},
             ),
             patch("src.process_tracker.subprocess.run", mock_subprocess),
-            patch("ctypes.windll", create=True) as mock_windll,
+            patch("src.process_tracker._try_focus_wt_tab", return_value=(None, "")),
+            patch("src.process_tracker._bring_hwnd_to_front"),
+            patch("src.process_tracker._build_diagnostics", return_value="diag"),
         ):
-            mock_windll.user32 = MagicMock()
             ok, msg = _focus_session_window_windows("sess-1", sessions)
         assert ok is True
         assert "focused" in msg.lower()

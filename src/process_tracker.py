@@ -483,6 +483,74 @@ def _get_running_sessions_unix() -> dict[str, ProcessInfo]:
     return sessions
 
 
+def _populate_window_titles(sessions: dict[str, ProcessInfo]):
+    """Populate window_title for WT sessions by matching tab titles via UIA.
+
+    Scans all WT windows once, builds a map of tab titles, then matches
+    each session's summary against tab titles. Runs within the cache-refresh
+    cycle so the cost is amortised across all sessions.
+    """
+    Application = _get_pywinauto_app()
+    if Application is None:
+        return
+
+    try:
+        import win32gui
+        import win32process
+
+        # Collect terminal PIDs used by sessions
+        wt_pids = {
+            info.terminal_pid
+            for info in sessions.values()
+            if info.terminal_name.lower() in ("windowsterminal.exe", "wt.exe") and info.terminal_pid
+        }
+        if not wt_pids:
+            return
+
+        # Enumerate all WT windows
+        wt_hwnds: list[int] = []
+
+        def enum_cb(hwnd, _):
+            if win32gui.IsWindowVisible(hwnd):
+                _, pid = win32process.GetWindowThreadProcessId(hwnd)
+                if pid in wt_pids and win32gui.GetWindowText(hwnd):
+                    wt_hwnds.append(hwnd)
+            return True
+
+        win32gui.EnumWindows(enum_cb, None)
+
+        # Build map: lowercase tab title → original title
+        tab_titles: list[tuple[str, str]] = []
+        for hwnd in wt_hwnds:
+            try:
+                app = Application(backend="uia").connect(handle=hwnd)
+                win = app.window(handle=hwnd)
+                for tab in win.descendants(control_type="TabItem"):
+                    title = tab.window_text()
+                    if title:
+                        tab_titles.append((title.lower(), title))
+            except Exception:
+                continue
+
+        if not tab_titles:
+            return
+
+        # Match each session's summary against tab titles
+        for sid, info in sessions.items():
+            if info.terminal_name.lower() not in ("windowsterminal.exe", "wt.exe"):
+                continue
+            summary = _get_session_summary(sid)
+            if not summary:
+                continue
+            match_key = summary.lower()
+            for lower_title, original_title in tab_titles:
+                if match_key in lower_title:
+                    info.window_title = original_title
+                    break
+    except Exception as e:
+        logger.debug("Error populating window titles: %s", e)
+
+
 def get_running_sessions() -> dict[str, ProcessInfo]:
     """
     Find running copilot processes and extract session info.
@@ -507,6 +575,10 @@ def get_running_sessions() -> dict[str, ProcessInfo]:
                 info.waiting_context = ss["waiting_context"]
                 info.bg_tasks = ss["bg_tasks"]
                 info.bg_task_list = ss["bg_task_list"]
+
+            # On Windows, populate window_title from WT tab titles (via UIA)
+            if sys.platform == "win32":
+                _populate_window_titles(sessions)
             _running_cache.data = sessions
             _running_cache.time = time.monotonic()
             return sessions
@@ -689,10 +761,223 @@ def get_session_tool_counts(session_id):
     return data.tool_calls, data.subagent_runs
 
 
+def _snapshot_process_tree() -> dict[int, tuple[int, str]]:
+    """Get PID -> (parent_pid, exe_name) map using a single kernel32 snapshot.
+
+    Uses CreateToolhelp32Snapshot which completes in ~1ms — orders of magnitude
+    faster than spawning PowerShell subprocesses for each ancestor.
+    """
+    import ctypes
+    import ctypes.wintypes
+
+    TH32CS_SNAPPROCESS = 0x00000002
+
+    class PROCESSENTRY32(ctypes.Structure):
+        _fields_ = [
+            ("dwSize", ctypes.wintypes.DWORD),
+            ("cntUsage", ctypes.wintypes.DWORD),
+            ("th32ProcessID", ctypes.wintypes.DWORD),
+            ("th32DefaultHeapID", ctypes.POINTER(ctypes.c_ulong)),
+            ("th32ModuleID", ctypes.wintypes.DWORD),
+            ("cntThreads", ctypes.wintypes.DWORD),
+            ("th32ParentProcessID", ctypes.wintypes.DWORD),
+            ("pcPriClassBase", ctypes.c_long),
+            ("dwFlags", ctypes.wintypes.DWORD),
+            ("szExeFile", ctypes.c_char * 260),
+        ]
+
+    # windll is Windows-only; type: ignore keeps mypy happy on Linux
+    kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+    snapshot = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+    INVALID_HANDLE = ctypes.wintypes.HANDLE(-1).value
+    if snapshot == INVALID_HANDLE:
+        return {}
+
+    pe = PROCESSENTRY32()
+    pe.dwSize = ctypes.sizeof(PROCESSENTRY32)
+    pid_map: dict[int, tuple[int, str]] = {}
+    try:
+        if kernel32.Process32First(snapshot, ctypes.byref(pe)):
+            while True:
+                pid_map[pe.th32ProcessID] = (
+                    pe.th32ParentProcessID,
+                    pe.szExeFile.decode(errors="replace"),
+                )
+                if not kernel32.Process32Next(snapshot, ctypes.byref(pe)):
+                    break
+    finally:
+        kernel32.CloseHandle(snapshot)
+    return pid_map
+
+
+def _build_diagnostics(copilot_pid, terminal_pid, terminal_name):
+    """Build diagnostics string using a single process snapshot (no subprocesses)."""
+    pid_map = _snapshot_process_tree()
+    chain = []
+    pid = copilot_pid
+    visited: set[int] = set()
+    for _ in range(MAX_DIAGNOSTICS_CHAIN):
+        if pid in visited or pid not in pid_map:
+            break
+        visited.add(pid)
+        ppid, name = pid_map[pid]
+        chain.append(f"  PID {pid} {name}")
+        pid = ppid
+    tree = "\n".join(chain)
+    return (
+        f"copilot PID={copilot_pid}, terminal_pid={terminal_pid} "
+        f"({terminal_name})\nProcess tree:\n{tree}"
+    )
+
+
+_pywinauto_app_cls = None  # cached pywinauto.Application class
+
+
+def _get_pywinauto_app():
+    """Return the pywinauto Application class, caching the import."""
+    global _pywinauto_app_cls
+    if _pywinauto_app_cls is None:
+        try:
+            from pywinauto.application import Application
+
+            _pywinauto_app_cls = Application
+        except ImportError:
+            return None
+    return _pywinauto_app_cls
+
+
+# Pre-warm pywinauto import in a background thread to avoid first-call latency
+if sys.platform == "win32":
+    threading.Thread(target=_get_pywinauto_app, daemon=True).start()
+
+
+def _get_session_summary(session_id: str) -> str:
+    """Fetch session summary from the session-store DB. Returns '' on failure."""
+    import sqlite3
+
+    from .constants import SESSION_STORE_DB
+
+    try:
+        conn = sqlite3.connect(f"file:{SESSION_STORE_DB}?mode=ro", uri=True)
+        row = conn.execute(
+            "SELECT summary FROM sessions WHERE id = ? LIMIT 1", (session_id,)
+        ).fetchone()
+        conn.close()
+        return row[0] if row and row[0] else ""
+    except Exception:
+        return ""
+
+
+def _try_focus_wt_tab(hwnd, session_id):
+    """Try to activate the correct Windows Terminal tab using UI Automation.
+
+    Searches across ALL WT windows (they share one PID) to find the tab
+    matching this session's CWD. Returns (matched_hwnd, message) where
+    matched_hwnd is the correct window to focus, or None if no match.
+    """
+    Application = _get_pywinauto_app()
+    if Application is None:
+        return None, ""
+
+    try:
+        import win32gui
+        import win32process
+
+        # Get session summary — WT tab titles show the copilot session summary
+        summary = _get_session_summary(session_id)
+        if not summary:
+            return None, ""
+
+        match_str = summary.lower()
+
+        # Collect ALL WT windows (they share one PID)
+        _, wt_pid = win32process.GetWindowThreadProcessId(hwnd)
+        wt_hwnds = []
+
+        def enum_cb(h, _):
+            if win32gui.IsWindowVisible(h):
+                _, pid = win32process.GetWindowThreadProcessId(h)
+                if pid == wt_pid and win32gui.GetWindowText(h):
+                    wt_hwnds.append(h)
+            return True
+
+        win32gui.EnumWindows(enum_cb, None)
+
+        # Search each window's tabs for a summary match
+        for wt_hwnd in wt_hwnds:
+            try:
+                app = Application(backend="uia").connect(handle=wt_hwnd)
+                win = app.window(handle=wt_hwnd)
+                tabs = win.descendants(control_type="TabItem")
+                if not tabs:
+                    continue
+                for tab in tabs:
+                    title = tab.window_text()
+                    if match_str in title.lower():
+                        if len(tabs) > 1:
+                            iface = tab.iface_selection_item
+                            if iface:
+                                iface.Select()
+                        return wt_hwnd, f"Switched to tab: {title}"
+            except Exception:
+                continue
+
+        return None, f"No tab matched '{summary}'"
+    except Exception as e:
+        logger.debug("WT tab focus failed: %s", e)
+        return None, ""
+
+
+def _bring_hwnd_to_front(target_hwnd):
+    """Bring a window handle to the foreground, even from a background process."""
+    import ctypes
+
+    import win32con
+    import win32gui
+    import win32process
+
+    # windll is Windows-only; type: ignore keeps mypy happy on Linux
+    user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+
+    placement = win32gui.GetWindowPlacement(target_hwnd)
+    if placement[1] == win32con.SW_SHOWMINIMIZED:
+        win32gui.ShowWindow(target_hwnd, win32con.SW_RESTORE)
+
+    fg_hwnd = win32gui.GetForegroundWindow()
+    if fg_hwnd == target_hwnd:
+        return  # already focused
+
+    # Temporarily set foreground lock timeout to 0, allowing our
+    # background process to steal focus.
+    SPI_GETFOREGROUNDLOCKTIMEOUT = 0x2000
+    SPI_SETFOREGROUNDLOCKTIMEOUT = 0x2001
+    SPIF_SENDCHANGE = 0x0002
+    old_timeout = ctypes.wintypes.DWORD()
+    user32.SystemParametersInfoW(SPI_GETFOREGROUNDLOCKTIMEOUT, 0, ctypes.byref(old_timeout), 0)
+    user32.SystemParametersInfoW(SPI_SETFOREGROUNDLOCKTIMEOUT, 0, None, SPIF_SENDCHANGE)
+
+    fg_thread = win32process.GetWindowThreadProcessId(fg_hwnd)[0]
+    my_thread = win32process.GetWindowThreadProcessId(target_hwnd)[0]
+    if fg_thread != my_thread:
+        user32.AttachThreadInput(fg_thread, my_thread, True)
+    try:
+        win32gui.BringWindowToTop(target_hwnd)
+        win32gui.SetForegroundWindow(target_hwnd)
+    finally:
+        if fg_thread != my_thread:
+            user32.AttachThreadInput(fg_thread, my_thread, False)
+
+    user32.SystemParametersInfoW(
+        SPI_SETFOREGROUNDLOCKTIMEOUT,
+        0,
+        ctypes.cast(old_timeout.value, ctypes.c_void_p),
+        SPIF_SENDCHANGE,
+    )
+
+
 def _focus_session_window_windows(session_id, sessions: dict[str, ProcessInfo]):
     """Focus terminal window on Windows using pywin32."""
     try:
-        import win32con
         import win32gui
         import win32process
     except ImportError:
@@ -703,84 +988,47 @@ def _focus_session_window_windows(session_id, sessions: dict[str, ProcessInfo]):
     terminal_pid = info.terminal_pid
     terminal_name = info.terminal_name
 
-    # Build full ancestry chain for diagnostics
-    def _get_ancestry(start_pid):
-        chain = []
-        pid = start_pid
-        visited = set()
-        for _ in range(MAX_DIAGNOSTICS_CHAIN):
-            if pid in visited:
-                break
-            visited.add(pid)
-            try:
-                procs = subprocess.run(
-                    [
-                        "powershell",
-                        "-NoProfile",
-                        "-Command",
-                        f"Get-CimInstance Win32_Process -Filter 'ProcessId={pid}' | "
-                        f"Select-Object ProcessId,ParentProcessId,Name | ConvertTo-Json",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=PARENT_LOOKUP_TIMEOUT,
-                    check=False,
-                )
-                p = json.loads(procs.stdout)
-                if isinstance(p, list):
-                    p = p[0]
-                chain.append(f"  PID {p.get('ProcessId')} {p.get('Name')}")
-                pid = p.get("ParentProcessId", 0)
-                if not pid:
-                    break
-            except Exception:
-                chain.append(f"  PID {pid} (lookup failed)")
-                break
-        return "\n".join(chain)
-
-    tree = _get_ancestry(copilot_pid)
-    diag = f"copilot PID={copilot_pid}, terminal_pid={terminal_pid} ({terminal_name})\nProcess tree:\n{tree}"
-
     if not terminal_pid:
+        diag = _build_diagnostics(copilot_pid, terminal_pid, terminal_name)
         return False, f"Could not find terminal window.\n{diag}"
 
-    target_hwnd = None
+    # Find any visible window for this terminal PID (as a fallback)
+    fallback_hwnd = None
 
     def enum_cb(hwnd, _):
-        nonlocal target_hwnd
+        nonlocal fallback_hwnd
         if win32gui.IsWindowVisible(hwnd):
             _, pid = win32process.GetWindowThreadProcessId(hwnd)
             if pid == terminal_pid:
                 title = win32gui.GetWindowText(hwnd)
                 if title:
-                    target_hwnd = hwnd
+                    fallback_hwnd = hwnd
         return True
 
     win32gui.EnumWindows(enum_cb, None)
-    if not target_hwnd:
+    if not fallback_hwnd:
+        diag = _build_diagnostics(copilot_pid, terminal_pid, terminal_name)
         return False, f"No visible window found for terminal PID {terminal_pid}.\n{diag}"
 
     try:
-        import ctypes
+        target_hwnd = fallback_hwnd
+        tab_msg = ""
 
-        placement = win32gui.GetWindowPlacement(target_hwnd)
-        if placement[1] == win32con.SW_SHOWMINIMIZED:
-            win32gui.ShowWindow(target_hwnd, win32con.SW_RESTORE)
+        # For WT, search all windows for the tab matching this session's CWD.
+        # This finds the correct window (WT has multiple windows per PID).
+        if terminal_name.lower() in ("windowsterminal.exe", "wt.exe"):
+            matched_hwnd, tab_msg = _try_focus_wt_tab(fallback_hwnd, session_id)
+            if matched_hwnd:
+                target_hwnd = matched_hwnd
 
-        fg_hwnd = win32gui.GetForegroundWindow()
-        fg_thread = win32process.GetWindowThreadProcessId(fg_hwnd)[0]
-        my_thread = win32process.GetWindowThreadProcessId(target_hwnd)[0]
-        # windll is Windows-only; type: ignore keeps mypy happy on Linux
-        user32 = ctypes.windll.user32  # type: ignore[attr-defined]
-        if fg_thread != my_thread:
-            user32.AttachThreadInput(fg_thread, my_thread, True)
-            win32gui.SetForegroundWindow(target_hwnd)
-            user32.AttachThreadInput(fg_thread, my_thread, False)
-        else:
-            win32gui.SetForegroundWindow(target_hwnd)
+        _bring_hwnd_to_front(target_hwnd)
         title = win32gui.GetWindowText(target_hwnd)
-        return True, f"Focused: {title}\n{diag}"
+        msg = f"Focused: {title}"
+        if tab_msg:
+            msg += f"\n{tab_msg}"
+        return True, msg
     except Exception as e:
+        diag = _build_diagnostics(copilot_pid, terminal_pid, terminal_name)
         return False, f"Could not focus window: {e}\n{diag}"
 
 
@@ -831,8 +1079,15 @@ def focus_session_window(session_id):
     """
     Bring the terminal window running a session to the foreground.
     Returns (success: bool, message: str).
+
+    Uses cached process data when available to avoid a ~1s WMI query.
+    The cache is kept warm by the dashboard's regular polling cycle.
     """
-    sessions = get_running_sessions()
+    # Prefer cached data (even if stale) to avoid blocking on a fresh WMI query.
+    sessions = _running_cache.data if _running_cache.data else get_running_sessions()
+    if session_id not in sessions:
+        # Cache miss — try a fresh query as fallback
+        sessions = get_running_sessions()
     if session_id not in sessions:
         return False, "Session not found among running processes."
 

@@ -1,2 +1,3 @@
 fastapi
 uvicorn
+pywinauto; sys_platform == "win32"
