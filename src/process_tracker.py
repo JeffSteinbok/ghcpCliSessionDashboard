@@ -343,6 +343,9 @@ def _get_running_sessions_windows() -> dict[str, ProcessInfo]:
     for proc in copilot_procs:
         cmd = proc.get("CommandLine", "")
         terminal_pid, terminal_name = _find_terminal(proc.get("ParentProcessId", 0))
+        # Detect if launched via agency (parent is agency.exe)
+        parent = pid_map.get(proc.get("ParentProcessId", 0))
+        is_agency = (parent.get("Name") or "").lower() == "agency.exe" if parent else False
         proc_info = ProcessInfo(
             pid=proc.get("ProcessId", 0),
             parent_pid=proc.get("ParentProcessId", 0),
@@ -350,6 +353,7 @@ def _get_running_sessions_windows() -> dict[str, ProcessInfo]:
             terminal_name=terminal_name,
             cmdline=cmd,
             yolo="--yolo" in cmd,
+            agency=is_agency,
             mcp_servers=_parse_mcp_servers(cmd),
         )
 
@@ -432,6 +436,21 @@ def _get_running_sessions_unix() -> dict[str, ProcessInfo]:
         except Exception as e:
             logger.debug("Error walking process tree from PID %d: %s", ppid, e)
 
+        # Detect if launched via agency (check parent command)
+        is_agency = False
+        try:
+            parent_result = subprocess.run(
+                ["ps", "-p", str(ppid), "-o", "comm="],
+                capture_output=True,
+                text=True,
+                timeout=PARENT_LOOKUP_TIMEOUT,
+                check=False,
+            )
+            if parent_result.returncode == 0:
+                is_agency = parent_result.stdout.strip().lower().endswith("agency")
+        except Exception:
+            pass
+
         proc_info = ProcessInfo(
             pid=pid,
             parent_pid=ppid,
@@ -439,6 +458,7 @@ def _get_running_sessions_unix() -> dict[str, ProcessInfo]:
             terminal_name=terminal_name,
             cmdline=cmd,
             yolo="--yolo" in cmd,
+            agency=is_agency,
             mcp_servers=_parse_mcp_servers(cmd),
         )
 

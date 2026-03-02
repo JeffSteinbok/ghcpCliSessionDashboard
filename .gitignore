@@ -41,6 +41,9 @@ ENV/
 ehthumbs.db
 Thumbs.db
 
+# Kanban board (local agent tool)
+.kanban/
+
 # PID file
 .dashboard.pid
 
