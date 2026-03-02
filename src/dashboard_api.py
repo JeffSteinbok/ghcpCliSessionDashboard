@@ -267,6 +267,100 @@ def _enrich_session(s: dict, proc: ProcessInfo | None, evt: EventData) -> dict:
     return s
 
 
+def _sessions_from_events() -> list[dict]:
+    """Build Copilot session list from events.jsonl when session-store.db is absent.
+
+    Scans ``~/.copilot/session-state/*/events.jsonl`` to extract session
+    metadata (cwd, branch, summary, timestamps, turn counts) so the
+    dashboard still works without the experimental SESSION_STORE feature.
+    """
+    if not os.path.isdir(SESSION_STATE_DIR):
+        return []
+
+    running = get_running_sessions()
+    sessions: list[dict] = []
+
+    for entry in os.listdir(SESSION_STATE_DIR):
+        session_dir = os.path.join(SESSION_STATE_DIR, entry)
+        events_file = os.path.join(session_dir, "events.jsonl")
+        if not os.path.isdir(session_dir) or not os.path.isfile(events_file):
+            continue
+
+        sid = entry
+        created_at = ""
+        updated_at = ""
+        cwd = ""
+        branch = ""
+        repository = ""
+        summary = ""
+        turn_count = 0
+
+        try:
+            with open(events_file, encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+
+                    # Extract timestamp from every line (lightweight)
+                    if '"timestamp"' in line:
+                        try:
+                            evt = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        ts = evt.get("timestamp", "")
+                        if ts:
+                            if not created_at:
+                                created_at = ts
+                            updated_at = ts
+
+                        etype = evt.get("type", "")
+
+                        if etype in ("session.start", "session.resume") and not cwd:
+                            ctx = evt.get("data", {}).get("context", {})
+                            cwd = ctx.get("cwd", "")
+                            branch = ctx.get("branch", "")
+                            repository = ctx.get("repository", "")
+
+                        elif etype == "user.message" and not summary:
+                            content = evt.get("data", {}).get("content", "")
+                            if content:
+                                summary = content[:200]
+
+                        elif etype == "assistant.turn_end":
+                            turn_count += 1
+        except OSError as e:
+            logger.debug("Error reading events for %s: %s", sid, e)
+            continue
+
+        if not created_at:
+            continue
+
+        proc = running.get(sid)
+        evt = get_session_event_data(sid, is_running=proc is not None)
+
+        s: dict = {
+            "id": sid,
+            "cwd": cwd,
+            "repository": repository,
+            "branch": branch,
+            "summary": summary or "(No summary)",
+            "created_at": created_at,
+            "updated_at": updated_at or created_at,
+            "turn_count": turn_count,
+            "file_count": 0,
+            "checkpoint_count": 0,
+            "first_msg": None,
+            "last_cp_title": None,
+            "last_cp_overview": None,
+            "source": "copilot",
+        }
+        result = _enrich_session(s, proc, evt)
+        sessions.append(result)
+
+    return sessions
+
+
 # ── API Routes ───────────────────────────────────────────────────────────────
 
 
@@ -291,7 +385,8 @@ def api_sessions():
             evt = get_session_event_data(s["id"], is_running=proc is not None)
             result.append(_enrich_session(s, proc, evt))
     except FileNotFoundError:
-        logger.debug("Copilot session store not found, skipping Copilot sessions")
+        logger.debug("Copilot session store not found, falling back to events.jsonl")
+        result.extend(_sessions_from_events())
 
     # ── Claude Code sessions ──
     try:
@@ -320,8 +415,33 @@ def api_session_detail(session_id: str):
 
     try:
         db = get_db()
-    except FileNotFoundError as e:
-        return JSONResponse({"error": str(e)}, status_code=503)
+    except FileNotFoundError:
+        # No DB — return what we can from events.jsonl alone
+        events_file = os.path.join(SESSION_STATE_DIR, session_id, "events.jsonl")
+        tool_counter: Counter = Counter()
+        if os.path.exists(events_file):
+            try:
+                with open(events_file, encoding="utf-8", errors="replace") as f:
+                    for line in f:
+                        if '"tool.execution_start"' in line:
+                            try:
+                                evt = json.loads(line)
+                                if evt.get("type") == "tool.execution_start":
+                                    tool_name = evt.get("data", {}).get("toolName", "")
+                                    if tool_name:
+                                        tool_counter[tool_name] += 1
+                            except Exception:
+                                pass
+            except Exception:
+                pass
+        return {
+            "checkpoints": [],
+            "refs": [],
+            "turns": [],
+            "recent_output": get_recent_output(session_id),
+            "tool_counts": [{"name": k, "count": v} for k, v in tool_counter.most_common(10)],
+            "files": [],
+        }
     try:
         checkpoints = db.execute(
             "SELECT checkpoint_number, title, overview, next_steps "
@@ -346,7 +466,7 @@ def api_session_detail(session_id: str):
 
     # Read tool counts from events.jsonl
     events_file = os.path.join(SESSION_STATE_DIR, session_id, "events.jsonl")
-    tool_counter: Counter = Counter()
+    tool_counter = Counter()
     if os.path.exists(events_file):
         try:
             with open(events_file, encoding="utf-8", errors="replace") as f:
@@ -379,8 +499,8 @@ def api_files():
     """Return most-edited files across all sessions."""
     try:
         db = get_db()
-    except FileNotFoundError as e:
-        return JSONResponse({"error": str(e)}, status_code=503)
+    except FileNotFoundError:
+        return []  # No file data without the DB
     try:
         rows = db.execute("""
             SELECT sf.file_path, COUNT(DISTINCT sf.session_id) as session_count,

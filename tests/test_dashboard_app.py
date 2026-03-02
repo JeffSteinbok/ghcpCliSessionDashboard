@@ -1,6 +1,7 @@
 """Tests for dashboard_api.py — pure helper functions and FastAPI routes."""
 
 import json
+import os
 import signal
 import sqlite3
 from unittest.mock import MagicMock, patch
@@ -284,15 +285,16 @@ class TestApiSessions:
         assert len(data) == 1
         assert data[0]["id"] == "sess-1"
 
-    def test_returns_503_when_db_missing(self, client, tmp_path):
+    def test_returns_empty_when_db_and_events_missing(self, client, tmp_path):
         missing = str(tmp_path / "nonexistent.db")
         with (
             patch("src.dashboard_api.DB_PATH", missing),
+            patch("src.dashboard_api.SESSION_STATE_DIR", str(tmp_path / "no-sessions")),
             patch("src.dashboard_api.get_claude_sessions", return_value=[]),
             patch("src.dashboard_api.get_running_claude_sessions", return_value={}),
         ):
             resp = client.get("/api/sessions")
-        # With no Copilot DB and no Claude sessions, we get an empty list (not 503)
+        # With no Copilot DB, no events, and no Claude sessions, we get an empty list
         assert resp.status_code == 200
         assert resp.json() == []
 
@@ -339,11 +341,15 @@ class TestApiSessionDetail:
         assert "files" in data
         assert data["files"] == ["src/foo.py"]
 
-    def test_returns_503_when_db_missing(self, client, tmp_path):
+    def test_returns_partial_when_db_missing(self, client, tmp_path):
         missing = str(tmp_path / "nonexistent.db")
         with patch("src.dashboard_api.DB_PATH", missing):
             resp = client.get("/api/session/sess-1")
-        assert resp.status_code == 503
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["checkpoints"] == []
+        assert data["turns"] == []
+        assert data["files"] == []
 
 
 class TestApiFiles:
@@ -355,11 +361,12 @@ class TestApiFiles:
         data = resp.json()
         assert any(f["file_path"] == "src/foo.py" for f in data)
 
-    def test_returns_503_when_db_missing(self, client, tmp_path):
+    def test_returns_empty_when_db_missing(self, client, tmp_path):
         missing = str(tmp_path / "nonexistent.db")
         with patch("src.dashboard_api.DB_PATH", missing):
             resp = client.get("/api/files")
-        assert resp.status_code == 503
+        assert resp.status_code == 200
+        assert resp.json() == []
 
 
 class TestApiProcesses:
@@ -481,3 +488,154 @@ class TestServiceWorker:
         assert resp.status_code == 200
         assert "application/javascript" in resp.headers["content-type"]
         assert b"fetch" in resp.content
+
+
+# ── Events fallback (no DB) ─────────────────────────────────────────────────
+
+
+class TestSessionsFromEvents:
+    """Test _sessions_from_events() — builds Copilot sessions from events.jsonl."""
+
+    @pytest.fixture
+    def events_dir(self, tmp_path):
+        """Create a mock session-state directory with events.jsonl files."""
+        session_dir = tmp_path / "session-state" / "test-sess-001"
+        session_dir.mkdir(parents=True)
+        events = [
+            json.dumps({
+                "type": "session.start",
+                "data": {"sessionId": "test-sess-001", "startTime": "2026-03-01T10:00:00Z"},
+                "timestamp": "2026-03-01T10:00:00Z",
+            }),
+            json.dumps({
+                "type": "session.resume",
+                "data": {"context": {"cwd": "/home/user/project", "branch": "main", "repository": "org/repo"}},
+                "timestamp": "2026-03-01T10:00:01Z",
+            }),
+            json.dumps({
+                "type": "user.message",
+                "data": {"content": "Fix the authentication bug"},
+                "timestamp": "2026-03-01T10:00:05Z",
+            }),
+            json.dumps({
+                "type": "assistant.turn_end",
+                "data": {"turnId": "0"},
+                "timestamp": "2026-03-01T10:05:00Z",
+            }),
+            json.dumps({
+                "type": "user.message",
+                "data": {"content": "Now add tests"},
+                "timestamp": "2026-03-01T10:06:00Z",
+            }),
+            json.dumps({
+                "type": "assistant.turn_end",
+                "data": {"turnId": "1"},
+                "timestamp": "2026-03-01T10:10:00Z",
+            }),
+        ]
+        (session_dir / "events.jsonl").write_text("\n".join(events), encoding="utf-8")
+        return str(tmp_path / "session-state")
+
+    def test_returns_sessions_from_events(self, client, events_dir, tmp_path):
+        missing_db = str(tmp_path / "nonexistent.db")
+        with (
+            patch("src.dashboard_api.DB_PATH", missing_db),
+            patch("src.dashboard_api.SESSION_STATE_DIR", events_dir),
+            patch("src.dashboard_api.get_running_sessions", return_value={}),
+            patch("src.dashboard_api.get_session_event_data", return_value=EventData()),
+            patch("src.dashboard_api.get_claude_sessions", return_value=[]),
+            patch("src.dashboard_api.get_running_claude_sessions", return_value={}),
+        ):
+            resp = client.get("/api/sessions")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        s = data[0]
+        assert s["id"] == "test-sess-001"
+        assert s["cwd"] == "/home/user/project"
+        assert s["branch"] == "main"
+        assert s["summary"] == "Fix the authentication bug"
+        assert s["turn_count"] == 2
+        assert s["source"] == "copilot"
+
+    def test_empty_when_no_session_state_dir(self, client, tmp_path):
+        missing_db = str(tmp_path / "nonexistent.db")
+        with (
+            patch("src.dashboard_api.DB_PATH", missing_db),
+            patch("src.dashboard_api.SESSION_STATE_DIR", str(tmp_path / "no-such-dir")),
+            patch("src.dashboard_api.get_claude_sessions", return_value=[]),
+            patch("src.dashboard_api.get_running_claude_sessions", return_value={}),
+        ):
+            resp = client.get("/api/sessions")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_skips_dirs_without_events(self, client, events_dir, tmp_path):
+        # Add a session dir with no events.jsonl
+        empty_dir = os.path.join(events_dir, "empty-sess")
+        os.makedirs(empty_dir)
+        missing_db = str(tmp_path / "nonexistent.db")
+        with (
+            patch("src.dashboard_api.DB_PATH", missing_db),
+            patch("src.dashboard_api.SESSION_STATE_DIR", events_dir),
+            patch("src.dashboard_api.get_running_sessions", return_value={}),
+            patch("src.dashboard_api.get_session_event_data", return_value=EventData()),
+            patch("src.dashboard_api.get_claude_sessions", return_value=[]),
+            patch("src.dashboard_api.get_running_claude_sessions", return_value={}),
+        ):
+            resp = client.get("/api/sessions")
+        assert resp.status_code == 200
+        # Only the session with events.jsonl should appear
+        assert len(resp.json()) == 1
+
+    def test_running_session_enriched_from_events(self, client, events_dir, tmp_path):
+        missing_db = str(tmp_path / "nonexistent.db")
+        proc = ProcessInfo(pid=1234, state="working")
+        with (
+            patch("src.dashboard_api.DB_PATH", missing_db),
+            patch("src.dashboard_api.SESSION_STATE_DIR", events_dir),
+            patch("src.dashboard_api.get_running_sessions", return_value={"test-sess-001": proc}),
+            patch("src.dashboard_api.get_session_event_data", return_value=EventData()),
+            patch("src.dashboard_api.get_claude_sessions", return_value=[]),
+            patch("src.dashboard_api.get_running_claude_sessions", return_value={}),
+        ):
+            resp = client.get("/api/sessions")
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["is_running"] is True
+        assert data[0]["state"] == "working"
+
+    def test_detail_fallback_when_db_missing(self, client, tmp_path):
+        """Session detail returns partial data from events when DB is missing."""
+        missing_db = str(tmp_path / "nonexistent.db")
+        session_dir = tmp_path / "session-state" / "test-sess-002"
+        session_dir.mkdir(parents=True)
+        events = [
+            json.dumps({
+                "type": "tool.execution_start",
+                "data": {"toolName": "powershell"},
+                "timestamp": "2026-03-01T10:00:00Z",
+            }),
+            json.dumps({
+                "type": "tool.execution_start",
+                "data": {"toolName": "powershell"},
+                "timestamp": "2026-03-01T10:00:01Z",
+            }),
+            json.dumps({
+                "type": "tool.execution_start",
+                "data": {"toolName": "view"},
+                "timestamp": "2026-03-01T10:00:02Z",
+            }),
+        ]
+        (session_dir / "events.jsonl").write_text("\n".join(events), encoding="utf-8")
+        with (
+            patch("src.dashboard_api.DB_PATH", missing_db),
+            patch("src.dashboard_api.SESSION_STATE_DIR", str(tmp_path / "session-state")),
+        ):
+            resp = client.get("/api/session/test-sess-002")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["checkpoints"] == []
+        assert data["turns"] == []
+        tool_names = {t["name"] for t in data["tool_counts"]}
+        assert "powershell" in tool_names
