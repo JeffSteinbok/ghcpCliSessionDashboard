@@ -12,8 +12,8 @@
 A local web dashboard that monitors all your GitHub Copilot CLI and Claude Code sessions in real-time.
 Designed for power users running multiple AI coding sessions simultaneously.
 
-> [!IMPORTANT]
-> The dashboard requires the **SESSION_STORE** experimental feature to be enabled in the Copilot CLI. Without it, session history will not be available. Add `"experimental": true` to `~/.copilot/config.json`, then start a new Copilot session. The `session-store.db` file will be created automatically on first run.
+> [!TIP]
+> The dashboard works out of the box by reading `events.jsonl` files from your Copilot session directories. For richer session history (summaries, checkpoints), enable the **SESSION_STORE** experimental feature: add `"experimental": true` to `~/.copilot/config.json` and start a new Copilot session.
 
 ![Dashboard Screenshot](https://raw.githubusercontent.com/JeffSteinbok/ghcpCliDashboard/main/screenshot.png)
 
