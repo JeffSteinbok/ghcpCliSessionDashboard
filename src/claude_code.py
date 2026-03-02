@@ -114,7 +114,7 @@ def _session_from_transcript(
                     msg = json.loads(line_str)
                 except json.JSONDecodeError:
                     continue
-                role = msg.get("role") or msg.get("type", "")
+                role = msg.get("type") or msg.get("role", "")
                 if role in ("user", "assistant"):
                     message_count += 1
                     ts = msg.get("timestamp", "")
@@ -165,8 +165,14 @@ def _session_from_transcript(
 
 
 def _extract_first_prompt_text(msg: dict) -> str:
-    """Extract plain text from a Claude user message for use as summary."""
-    content = msg.get("content", "")
+    """Extract plain text from a Claude user message for use as summary.
+
+    Claude JSONL messages nest the actual content under ``msg["message"]["content"]``.
+    """
+    message = msg.get("message", {})
+    content = message.get("content", "") if isinstance(message, dict) else ""
+    if not content:
+        content = msg.get("content", "")
     return _extract_text_from_content(content)
 
 

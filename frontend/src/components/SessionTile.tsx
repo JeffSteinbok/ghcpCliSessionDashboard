@@ -46,7 +46,7 @@ export default function SessionTile({ session: s, processInfo, onOpenDetail }: S
   };
 
   return (
-    <div className={`tile-card ${tileClass}`} onClick={handleClick}>
+    <div className={`tile-card ${tileClass}`} data-source={s.source || "copilot"} onClick={handleClick}>
       <div className="tile-subtitle" style={{ fontSize: 11, opacity: 0.7 }}>
         started {s.created_ago}
       </div>
@@ -155,6 +155,13 @@ export default function SessionTile({ session: s, processInfo, onOpenDetail }: S
           >
             ✕
           </span>
+        </div>
+      )}
+
+      {/* Source badge */}
+      {s.source === "claude" && (
+        <div className="tile-source-badge">
+          <span className="badge badge-claude">✦ Claude</span>
         </div>
       )}
     </div>

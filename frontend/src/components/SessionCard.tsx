@@ -110,11 +110,6 @@ export default function SessionCard({ session: s, processInfo }: SessionCardProp
 
           {/* Badges */}
           <div className="session-meta">
-            {s.source === "claude" && (
-              <span className="badge badge-claude" data-tip="Claude Code session">
-                ✦ Claude
-              </span>
-            )}
             {isRunning && state && state !== "unknown" && (
               <span className={`badge ${STATE_BADGE_CLASS[state] || "badge-active"}`} data-tip={`State: ${state}`}>
                 {STATE_LABELS[state] || ""}
@@ -173,6 +168,11 @@ export default function SessionCard({ session: s, processInfo }: SessionCardProp
             <span className="tile-kill-x" onClick={handleKill} data-tip={`Kill process PID ${processInfo!.pid}`}>
               ✕
             </span>
+          </span>
+        )}
+        {s.source === "claude" && (
+          <span className="badge badge-claude list-source-badge" data-tip="Claude Code session">
+            ✦ Claude
           </span>
         )}
       </div>
