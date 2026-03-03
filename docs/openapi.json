@@ -3,7 +3,7 @@
   "info": {
     "title": "Copilot Dashboard",
     "description": "Monitor all your GitHub Copilot CLI sessions in real-time.",
-    "version": "0.6.3"
+    "version": "0.7.0"
   },
   "paths": {
     "/api/sessions": {
@@ -95,7 +95,7 @@
     "/api/processes": {
       "get": {
         "summary": "Api Processes",
-        "description": "Return currently running copilot sessions mapped by session ID.",
+        "description": "Return currently running copilot and Claude sessions mapped by session ID.",
         "operationId": "api_processes_api_processes_get",
         "responses": {
           "200": {
@@ -188,6 +188,29 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/remote-sessions": {
+      "get": {
+        "summary": "Api Remote Sessions",
+        "description": "Return active sessions from other machines via the sync folder.",
+        "operationId": "api_remote_sessions_api_remote_sessions_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SessionResponse"
+                  },
+                  "type": "array",
+                  "title": "Response Api Remote Sessions Api Remote Sessions Get"
                 }
               }
             }
@@ -404,6 +427,11 @@
             "title": "Yolo",
             "default": false
           },
+          "agency": {
+            "type": "boolean",
+            "title": "Agency",
+            "default": false
+          },
           "state": {
             "type": "string",
             "title": "State",
@@ -432,6 +460,11 @@
             },
             "type": "array",
             "title": "Mcp Servers"
+          },
+          "window_title": {
+            "type": "string",
+            "title": "Window Title",
+            "default": ""
           }
         },
         "type": "object",
@@ -468,6 +501,17 @@
           "port": {
             "type": "string",
             "title": "Port"
+          },
+          "sync_folder": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sync Folder"
           }
         },
         "type": "object",
@@ -675,6 +719,16 @@
           "intent": {
             "type": "string",
             "title": "Intent",
+            "default": ""
+          },
+          "source": {
+            "type": "string",
+            "title": "Source",
+            "default": "copilot"
+          },
+          "machine_name": {
+            "type": "string",
+            "title": "Machine Name",
             "default": ""
           }
         },
