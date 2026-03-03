@@ -56,7 +56,7 @@ export default function TabBar({ activeCount, previousCount }: TabBarProps) {
             className={`tab ${currentTab === t.key ? "active" : ""}`}
             data-tab={t.key}
             onClick={() => switchTab(t.key)}
-            title={t.title}
+            data-tip={t.title}
           >
             {t.icon} {t.label}
             {t.count !== undefined && (
@@ -88,14 +88,14 @@ export default function TabBar({ activeCount, previousCount }: TabBarProps) {
         <button
           className={`view-btn ${currentView === "tile" ? "active" : ""}`}
           onClick={() => setView("tile")}
-          title="Tile view"
+          data-tip="Tile view"
         >
           ▦
         </button>
         <button
           className={`view-btn ${currentView === "list" ? "active" : ""}`}
           onClick={() => setView("list")}
-          title="List view"
+          data-tip="List view"
         >
           ☰
         </button>

@@ -346,8 +346,8 @@ describe("TabBar", () => {
 
   it("renders tile and list view buttons", () => {
     renderWithProvider(<TabBar activeCount={0} previousCount={0} />);
-    expect(screen.getByTitle("Tile view")).toBeInTheDocument();
-    expect(screen.getByTitle("List view")).toBeInTheDocument();
+    expect(document.querySelector('[data-tip="Tile view"]')).toBeInTheDocument();
+    expect(document.querySelector('[data-tip="List view"]')).toBeInTheDocument();
   });
 
   it("renders notification button", () => {
@@ -706,14 +706,14 @@ describe("TabBar — interactions", () => {
 
   it("clicking tile view button activates tile view", () => {
     renderWithProvider(<TabBar activeCount={0} previousCount={0} />);
-    const tileBtn = screen.getByTitle("Tile view");
+    const tileBtn = document.querySelector('[data-tip="Tile view"]') as HTMLElement;
     fireEvent.click(tileBtn);
     expect(tileBtn.classList.contains("active")).toBe(true);
   });
 
   it("clicking list view button activates list view", () => {
     renderWithProvider(<TabBar activeCount={0} previousCount={0} />);
-    const listBtn = screen.getByTitle("List view");
+    const listBtn = document.querySelector('[data-tip="List view"]') as HTMLElement;
     fireEvent.click(listBtn);
     expect(listBtn.classList.contains("active")).toBe(true);
   });

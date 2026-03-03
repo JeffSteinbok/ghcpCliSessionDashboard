@@ -141,7 +141,7 @@ export default function Timeline({ sessions, processes, now, onOpenDetail }: Tim
               textAlign: "right",
               paddingRight: 8,
             }}
-            title={s.summary || ""}
+            data-tip={s.summary || ""}
           >
             {label}
           </div>
@@ -168,7 +168,7 @@ export default function Timeline({ sessions, processes, now, onOpenDetail }: Tim
                 minWidth: 4,
                 opacity: 0.85,
               }}
-              title={`${s.summary || ""} — ${s.created_ago}`}
+              data-tip={`${s.summary || ""} — ${s.created_ago}`}
             />
           </div>
         </div>

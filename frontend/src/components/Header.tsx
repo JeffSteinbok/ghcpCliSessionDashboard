@@ -46,7 +46,7 @@ export default function Header({
 
       {/* Waiting badge — only shown when sessions are waiting for input */}
       {waitingCount > 0 && (
-        <span id="waiting-badge" title="Sessions waiting for input">
+        <span id="waiting-badge" data-tip="Sessions waiting for input">
           ⏳ {waitingCount} waiting
         </span>
       )}
@@ -65,7 +65,7 @@ export default function Header({
         &nbsp;&bull;&nbsp;
         <span
           id="version-display"
-          title={
+          data-tip={
             showUpdateModal
               ? `v${versionInfo.latest} available — click to update`
               : "Up to date"
@@ -105,20 +105,20 @@ export default function Header({
           <button
             className="theme-btn"
             onClick={() => dispatch({ type: "TOGGLE_WIDGETS_COLLAPSED" })}
-            title={widgetsCollapsed ? "Show stats widgets" : "Hide stats widgets"}
+            data-tip={widgetsCollapsed ? "Show stats widgets" : "Hide stats widgets"}
           >
             {widgetsCollapsed ? "📊 Show Stats" : "📊 Hide Stats"}
           </button>
           <button
             className="theme-btn"
             onClick={toggleMode}
-            title="Toggle light/dark mode"
+            data-tip="Toggle light/dark mode"
           >
             {theme.mode === "dark" ? "🌙 Dark" : "☀️ Light"}
           </button>
           <select
             className="palette-select"
-            title="Color palette"
+            data-tip="Color palette"
             value={theme.palette}
             onChange={(e) => setPalette(e.target.value as Palette)}
           >
@@ -147,7 +147,7 @@ export default function Header({
             color: "var(--text2)",
             fontFamily: "monospace",
           }}
-          title="Dashboard server process ID"
+          data-tip="Dashboard server process ID"
         >
           server PID {serverPid}
         </div>
