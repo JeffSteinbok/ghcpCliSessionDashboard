@@ -10,15 +10,18 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { fetchServerInfo } from "../api";
 import { useAutostart, useSettings } from "../hooks";
+import type { ServerInfo } from "../types";
 
 export default function HamburgerMenu() {
   const [open, setOpen] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
+  const [serverInfo, setServerInfo] = useState<ServerInfo | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const autostart = useAutostart();
-  const { settings, loading: settingsLoading, setSyncEnabled } = useSettings();
+  const { settings, loading: settingsLoading, setSyncEnabled, setLogLevel } = useSettings();
 
   const toggle = useCallback(() => setOpen((prev) => !prev), []);
 
@@ -43,6 +46,14 @@ export default function HamburgerMenu() {
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, [open]);
+
+  // Fetch server info when About dialog opens
+  useEffect(() => {
+    if (!showAbout) return;
+    fetchServerInfo()
+      .then(setServerInfo)
+      .catch(() => {});
+  }, [showAbout]);
 
   return (
     <>
@@ -83,6 +94,22 @@ export default function HamburgerMenu() {
                   onChange={(e) => setSyncEnabled(e.target.checked)}
                 />
                 <span className="toggle-slider" />
+              </label>
+            )}
+
+            {/* Log level selector */}
+            {!settingsLoading && (
+              <label className="hamburger-item hamburger-select" role="menuitem">
+                <span>Log level</span>
+                <select
+                  value={settings.log_level}
+                  onChange={(e) => setLogLevel(e.target.value)}
+                >
+                  <option value="DEBUG">DEBUG</option>
+                  <option value="INFO">INFO</option>
+                  <option value="WARNING">WARNING</option>
+                  <option value="ERROR">ERROR</option>
+                </select>
               </label>
             )}
 
@@ -160,6 +187,15 @@ export default function HamburgerMenu() {
                 commands for every session.
               </li>
             </ul>
+            {serverInfo?.log_file && (
+              <p style={{ fontSize: "0.85em", opacity: 0.8 }}>
+                📄 <strong>Log file:</strong>{" "}
+                <code style={{ wordBreak: "break-all" }}>{serverInfo.log_file}</code>
+                <br />
+                Log level: <strong>{serverInfo.log_level}</strong> · Change in
+                Settings menu above
+              </p>
+            )}
             <button
               className="close-btn"
               onClick={() => setShowAbout(false)}

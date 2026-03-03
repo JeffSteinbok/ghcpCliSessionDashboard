@@ -8,12 +8,14 @@ import type { DashboardSettings } from "../types";
 
 const DEFAULT_SETTINGS: DashboardSettings = {
   sync_enabled: true,
+  log_level: "INFO",
 };
 
 export interface UseSettingsResult {
   settings: DashboardSettings;
   loading: boolean;
   setSyncEnabled: (enabled: boolean) => void;
+  setLogLevel: (level: string) => void;
 }
 
 export function useSettings(): UseSettingsResult {
@@ -34,5 +36,12 @@ export function useSettings(): UseSettingsResult {
       .catch(() => {});
   }, []);
 
-  return { settings, loading, setSyncEnabled };
+  const setLogLevel = useCallback((level: string) => {
+    setSettings((prev) => ({ ...prev, log_level: level }));
+    updateSettings({ log_level: level })
+      .then(setSettings)
+      .catch(() => {});
+  }, []);
+
+  return { settings, loading, setSyncEnabled, setLogLevel };
 }

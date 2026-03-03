@@ -647,6 +647,8 @@ def api_remote_sessions():
 @app.get("/api/server-info", response_model=ServerInfoResponse)
 def server_info(request: Request):
     """Return server metadata including PID."""
+    from .logging_config import get_log_file, get_log_level
+
     # Derive port from the ASGI server scope rather than trusting the Host header
     scope = request.scope
     server = scope.get("server")
@@ -655,6 +657,8 @@ def server_info(request: Request):
         "pid": os.getpid(),
         "port": port,
         "sync_folder": str(_sync_folder) if _sync_folder else None,
+        "log_file": get_log_file(),
+        "log_level": get_log_level(),
     }
 
 
@@ -867,16 +871,20 @@ def _reload_sync_folder() -> None:
 
 @app.get("/api/settings", response_model=SettingsResponse)
 def api_get_settings():
-    """Return current dashboard settings (sync toggle state)."""
+    """Return current dashboard settings."""
+    from .logging_config import get_log_level
+
     cfg = _read_dashboard_config()
     sync_cfg = cfg.get("sync", {})
     sync_enabled = sync_cfg.get("enabled", True) if isinstance(sync_cfg, dict) else True
-    return {"sync_enabled": sync_enabled}
+    return {"sync_enabled": sync_enabled, "log_level": get_log_level()}
 
 
 @app.put("/api/settings", response_model=SettingsResponse)
 async def api_put_settings(request: Request):
-    """Update dashboard settings (currently just the sync toggle)."""
+    """Update dashboard settings."""
+    from .logging_config import get_log_level, set_log_level
+
     body = await request.json()
     cfg = _read_dashboard_config()
 
@@ -885,12 +893,20 @@ async def api_put_settings(request: Request):
             cfg["sync"] = {}
         cfg["sync"]["enabled"] = bool(body["sync_enabled"])
 
+    if "log_level" in body:
+        level = str(body["log_level"]).upper()
+        if level in ("DEBUG", "INFO", "WARNING", "ERROR"):
+            set_log_level(level)
+            if "logging" not in cfg or not isinstance(cfg.get("logging"), dict):
+                cfg["logging"] = {}
+            cfg["logging"]["level"] = level
+
     _write_dashboard_config(cfg)
     _reload_sync_folder()
 
     sync_cfg = cfg.get("sync", {})
     sync_enabled = sync_cfg.get("enabled", True) if isinstance(sync_cfg, dict) else True
-    return {"sync_enabled": sync_enabled}
+    return {"sync_enabled": sync_enabled, "log_level": get_log_level()}
 
 
 # ── PWA / static routes ─────────────────────────────────────────────────────

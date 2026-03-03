@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import os
 
+import platformdirs
+
 # ── Python version ────────────────────────────────────────────────────────────
 
 MIN_PYTHON_VERSION = (3, 11)
@@ -31,6 +33,13 @@ COPILOT_DIR = os.path.join(os.path.expanduser("~"), ".copilot")
 SESSION_STATE_DIR = os.path.join(COPILOT_DIR, "session-state")
 SESSION_STORE_DB = os.path.join(COPILOT_DIR, "session-store.db")
 DASHBOARD_CONFIG_PATH = os.path.join(COPILOT_DIR, "dashboard-config.json")
+
+# Log directory uses OS-standard location via platformdirs:
+#   Windows:  %LOCALAPPDATA%\ghcpCliDashboard\Logs\
+#   macOS:    ~/Library/Logs/ghcpCliDashboard/
+#   Linux:    ~/.local/state/ghcpCliDashboard/log/
+DASHBOARD_LOG_DIR = platformdirs.user_log_dir("ghcpCliDashboard", appauthor=False)
+DASHBOARD_LOG_FILE = os.path.join(DASHBOARD_LOG_DIR, "dashboard.log")
 
 CLAUDE_DIR = os.path.join(os.path.expanduser("~"), ".claude")
 CLAUDE_PROJECTS_DIR = os.path.join(CLAUDE_DIR, "projects")
@@ -206,3 +215,14 @@ KEYWORD_GROUPS: list[tuple[list[str], str]] = [
 SECONDS_PER_MINUTE = 60
 SECONDS_PER_HOUR = 3600
 SECONDS_PER_DAY = 86400
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+
+LOG_MAX_BYTES = 5 * 1024 * 1024
+"""Max size of a single log file before rotation (5 MB)."""
+
+LOG_BACKUP_COUNT = 3
+"""Number of rotated log files to keep (dashboard.log.1, .2, .3)."""
+
+DEFAULT_LOG_LEVEL = "INFO"
+"""Default logging level when not overridden by config or CLI."""

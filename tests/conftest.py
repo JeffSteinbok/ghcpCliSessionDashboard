@@ -15,6 +15,7 @@ def client():
     real_client = TestClient(app)
     original_get = real_client.get
     original_post = real_client.post
+    original_put = real_client.put
 
     def _authed_get(url, **kwargs):
         params = kwargs.pop("params", {}) or {}
@@ -26,8 +27,14 @@ def client():
         params["token"] = API_TOKEN
         return original_post(url, params=params, **kwargs)
 
+    def _authed_put(url, **kwargs):
+        params = kwargs.pop("params", {}) or {}
+        params["token"] = API_TOKEN
+        return original_put(url, params=params, **kwargs)
+
     real_client.get = _authed_get  # type: ignore[assignment]
     real_client.post = _authed_post  # type: ignore[assignment]
+    real_client.put = _authed_put  # type: ignore[assignment]
     return real_client
 
 

@@ -4,16 +4,24 @@ Provides start, stop, and status subcommands.
 """
 
 import argparse
+import json
 import os
 import shutil
 import signal
 import subprocess
 import sys
+import urllib.request
 
-from .constants import DEFAULT_PORT, LOCALHOST, MIN_PYTHON_VERSION, PYTHON_VERSION_TIMEOUT
+from .constants import (
+    DASHBOARD_LOG_FILE,
+    DEFAULT_PORT,
+    LOCALHOST,
+    MIN_PYTHON_VERSION,
+    PYTHON_VERSION_TIMEOUT,
+)
+from .logging_config import setup_logging
 
 PKG_DIR = os.path.dirname(os.path.abspath(__file__))
-PID_FILE = os.path.join(PKG_DIR, ".dashboard.pid")
 
 from .__version__ import __repository__, __version__  # noqa: E402
 
@@ -21,6 +29,7 @@ BANNER = f"""\
   Copilot Dashboard v{__version__}
   By Jeff Steinbok — {__repository__}
   Open http://localhost:{{port}}
+  Log file: {DASHBOARD_LOG_FILE}
 """
 
 
@@ -33,9 +42,33 @@ def _print_sync_info(sync_folder) -> None:  # type: ignore[no-untyped-def]
     else:
         print("  [sync] Sync: disabled (no OneDrive/cloud folder detected)")
         print(
-            '     Enable: set "sync.folder" to a cloud-synced path in ~/.copilot/dashboard-config.json'
+            '     Enable: set "sync.folder" to a cloud-synced path'
+            " in ~/.copilot/dashboard-config.json"
         )
     print()
+
+
+def _probe_server(port: int) -> dict | None:
+    """Probe a running dashboard server on the given port.
+
+    Returns a dict with ``pid``, ``port``, and (if available) ``sync_folder``,
+    or *None* if nothing is listening.
+    """
+    try:
+        url = f"http://{LOCALHOST}:{port}/api/server-info"
+        with urllib.request.urlopen(url, timeout=2) as resp:
+            data: dict = json.loads(resp.read())
+            return data
+    except Exception:
+        return None
+
+
+def _kill_pid(pid: int) -> None:
+    """Terminate a process by PID, cross-platform."""
+    if sys.platform == "win32":
+        subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True, check=False)
+    else:
+        os.kill(pid, signal.SIGTERM)
 
 
 def _find_python():
@@ -74,23 +107,13 @@ def _find_python():
     return [sys.executable]
 
 
-def _read_pid_file() -> int | None:
-    """Read PID from the PID file, returning None if corrupt or missing."""
-    if not os.path.exists(PID_FILE):
-        return None
-    try:
-        with open(PID_FILE, encoding="utf-8") as f:
-            return int(f.read().strip())
-    except (ValueError, OSError):
-        return None
-
-
 def cmd_serve(args):
     """Internal: run the uvicorn server in-process (used by --background)."""
     import uvicorn
 
     from .sync import resolve_sync_folder
 
+    setup_logging(level=getattr(args, "log_level", None))
     _print_sync_info(resolve_sync_folder())
     uvicorn.run(
         "src.dashboard_api:app",
@@ -102,19 +125,15 @@ def cmd_serve(args):
 
 def cmd_start(args):
     """Start the dashboard server."""
-    # Check if already running
-    old_pid = _read_pid_file()
-    if old_pid is not None:
-        try:
-            os.kill(old_pid, 0)
-            print(f"Dashboard already running (PID {old_pid}) at http://localhost:{args.port}")
-            return
-        except OSError:
-            os.remove(PID_FILE)
+    info = _probe_server(args.port)
+    if info:
+        pid = info.get("pid", "?")
+        print(f"Dashboard already running (PID {pid}) at http://localhost:{args.port}")
+        return
 
     if args.background:
         python = _find_python()
-        # Re-invoke as a module so relative imports work
+        log_level = getattr(args, "log_level", None)
         pkg = __spec__.parent if __spec__ else None
         if pkg:
             repo_root = os.path.dirname(PKG_DIR)
@@ -136,104 +155,87 @@ def cmd_start(args):
                 str(args.port),
             ]
             repo_root = os.path.dirname(PKG_DIR)
-        proc = subprocess.Popen(  # pylint: disable=consider-using-with
+        if log_level:
+            cmd.extend(["--log-level", log_level])
+        subprocess.Popen(  # pylint: disable=consider-using-with
             cmd,
             cwd=repo_root,
             creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        with open(PID_FILE, "w", encoding="utf-8") as f:
-            f.write(str(proc.pid))
-        print(f"Dashboard started in background (PID {proc.pid})")
         print(BANNER.format(port=args.port))
+
+        # Wait briefly for the server to come up
+        import time
+
+        for _ in range(5):
+            time.sleep(0.5)
+            if _probe_server(args.port):
+                info = _probe_server(args.port)
+                pid = info.get("pid", "?") if info else "?"
+                print(f"Dashboard started (PID {pid}) at http://localhost:{args.port}")
+                return
+        print(
+            "Dashboard process launched but server not yet responding.\n"
+            "  Try: copilot-dashboard status --port " + str(args.port)
+        )
     else:
-        # Foreground - write PID for status checks, run directly
-        with open(PID_FILE, "w", encoding="utf-8") as f:
-            f.write(str(os.getpid()))
-        try:
-            import uvicorn
+        import uvicorn
 
-            from .sync import resolve_sync_folder
+        from .sync import resolve_sync_folder
 
-            print(BANNER.format(port=args.port))
-            _print_sync_info(resolve_sync_folder())
-            uvicorn.run(
-                "src.dashboard_api:app",
-                host=LOCALHOST,
-                port=args.port,
-                log_level="warning",
-            )
-        finally:
-            if os.path.exists(PID_FILE):
-                os.remove(PID_FILE)
+        setup_logging(level=getattr(args, "log_level", None))
+        print(BANNER.format(port=args.port))
+        _print_sync_info(resolve_sync_folder())
+        uvicorn.run(
+            "src.dashboard_api:app",
+            host=LOCALHOST,
+            port=args.port,
+            log_level="warning",
+        )
 
 
-def cmd_stop(_args):
+def cmd_stop(args):
     """Stop the dashboard server."""
-    pid = _read_pid_file()
-    if pid is None:
-        print("Dashboard is not running (no PID file found).")
+    port = args.port
+    info = _probe_server(port)
+    if not info:
+        print(f"Dashboard is not running on port {port}.")
+        return
+
+    pid = info.get("pid")
+    if not pid:
+        print(f"Dashboard responded on port {port} but did not report a PID.")
         return
 
     try:
-        if sys.platform == "win32":
-            subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True, check=False)
-        else:
-            os.kill(pid, signal.SIGTERM)
-        print(f"Dashboard stopped (PID {pid}).")
+        _kill_pid(pid)
+        print(f"Dashboard stopped (PID {pid}, port {port}).")
     except Exception as e:
         print(f"Could not stop process {pid}: {e}")
-    finally:
-        if os.path.exists(PID_FILE):
-            os.remove(PID_FILE)
 
 
-def cmd_upgrade(_args):
+def cmd_upgrade(args):
     """Upgrade the dashboard via pip and restart if it was running."""
     from .__version__ import __version__ as old_version
 
-    # Remember if server was running (and on which port) so we can restart
-    pid = _read_pid_file()
-    was_running = False
-    port = DEFAULT_PORT
-    if pid is not None:
-        try:
-            os.kill(pid, 0)
-            was_running = True
-            # Try to read port from the running server
-            try:
-                import urllib.request
-
-                with urllib.request.urlopen(
-                    f"http://{LOCALHOST}:{DEFAULT_PORT}/api/server-info", timeout=3
-                ) as resp:
-                    import json
-
-                    info = json.loads(resp.read())
-                    port = int(info.get("port", DEFAULT_PORT))
-            except Exception:
-                pass
-        except OSError:
-            pass
+    port = args.port
+    info = _probe_server(port)
+    was_running = info is not None
 
     # Stop the server first to release file locks (important on Windows)
     if was_running:
-        print(f"Stopping dashboard (PID {pid})…")
+        pid = info.get("pid")  # type: ignore[union-attr]
+        print(f"Stopping dashboard (PID {pid})...")
         try:
-            if sys.platform == "win32":
-                subprocess.run(
-                    ["taskkill", "/F", "/PID", str(pid)], capture_output=True, check=False
-                )
-            else:
-                os.kill(pid, signal.SIGTERM)
+            if pid:
+                _kill_pid(pid)
         except Exception:
             pass
-        if os.path.exists(PID_FILE):
-            os.remove(PID_FILE)
 
     # Run pip upgrade
-    print("Upgrading ghcp-cli-dashboard…")
+    print("Upgrading ghcp-cli-dashboard...")
     result = subprocess.run(
         [
             sys.executable,
@@ -261,11 +263,11 @@ def cmd_upgrade(_args):
         new_version = ver_out.stdout.strip() if ver_out.returncode == 0 else "unknown"
     except Exception:
         new_version = "unknown"
-    print(f"Upgraded: v{old_version} → v{new_version}")
+    print(f"Upgraded: v{old_version} -> v{new_version}")
 
     # Restart if it was running
     if was_running:
-        print(f"Restarting dashboard on port {port}…")
+        print(f"Restarting dashboard on port {port}...")
         cmd = shutil.which("copilot-dashboard")
         if cmd:
             kwargs: dict = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
@@ -280,19 +282,15 @@ def cmd_upgrade(_args):
             print("Could not find copilot-dashboard command to restart. Start it manually.")
 
 
-def cmd_status(_args):
+def cmd_status(args):
     """Check if the dashboard is running."""
-    pid = _read_pid_file()
-    if pid is None:
-        print("Dashboard is not running.")
-        return
-
-    try:
-        os.kill(pid, 0)
-        print(f"Dashboard is running (PID {pid})")
-    except OSError:
-        print("Dashboard PID file exists but process is not running. Cleaning up.")
-        os.remove(PID_FILE)
+    port = args.port
+    info = _probe_server(port)
+    if info:
+        pid = info.get("pid", "?")
+        print(f"Dashboard is running (PID {pid}) on port {port}")
+    else:
+        print(f"Dashboard is not running on port {port}.")
 
 
 TASK_NAME = "CopilotDashboard"
@@ -383,10 +381,34 @@ def main():
     start_p.add_argument(
         "--background", "-b", action="store_true", help="Run as a background process (detached)"
     )
+    start_p.add_argument(
+        "--log-level",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        default=None,
+        help="Logging verbosity (default: INFO, or value from config)",
+    )
 
-    sub.add_parser("stop", help="Stop the background dashboard server")
-    sub.add_parser("status", help="Check if the dashboard server is running")
-    sub.add_parser("upgrade", help="Upgrade to the latest version from PyPI")
+    stop_p = sub.add_parser("stop", help="Stop the background dashboard server")
+    stop_p.add_argument(
+        "--port",
+        type=int,
+        default=DEFAULT_PORT,
+        help=f"Port the dashboard is running on (default: {DEFAULT_PORT})",
+    )
+    status_p = sub.add_parser("status", help="Check if the dashboard server is running")
+    status_p.add_argument(
+        "--port",
+        type=int,
+        default=DEFAULT_PORT,
+        help=f"Port to check (default: {DEFAULT_PORT})",
+    )
+    upgrade_p = sub.add_parser("upgrade", help="Upgrade to the latest version from PyPI")
+    upgrade_p.add_argument(
+        "--port",
+        type=int,
+        default=DEFAULT_PORT,
+        help=f"Port the dashboard is running on (default: {DEFAULT_PORT})",
+    )
 
     autostart_p = sub.add_parser(
         "autostart", help="Start dashboard automatically at login (Windows)"
@@ -401,6 +423,7 @@ def main():
 
     serve_p = sub.add_parser("_serve", help=argparse.SUPPRESS)
     serve_p.add_argument("--port", type=int, default=DEFAULT_PORT)
+    serve_p.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default=None)
 
     args = parser.parse_args()
     if not args.command:

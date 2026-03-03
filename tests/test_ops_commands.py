@@ -1,18 +1,157 @@
-"""Tests for autostart and upgrade refresh-message CLI commands."""
+"""Tests for CLI commands: server detection, autostart, and upgrade."""
 
 import argparse
+import json
 import sys
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from src.session_dashboard import (
     TASK_NAME,
     _get_autostart_cmd_str,
+    _kill_pid,
+    _probe_server,
     cmd_autostart,
     cmd_autostart_remove,
+    cmd_start,
+    cmd_status,
+    cmd_stop,
     cmd_upgrade,
 )
+
+# ---------------------------------------------------------------------------
+# _probe_server
+# ---------------------------------------------------------------------------
+
+
+class TestProbeServer:
+    @patch("src.session_dashboard.urllib.request.urlopen")
+    def test_returns_dict_on_success(self, mock_urlopen):
+        payload = {"pid": 1234, "port": "5111", "sync_folder": None}
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps(payload).encode()
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        result = _probe_server(5111)
+        assert result == payload
+
+    @patch("src.session_dashboard.urllib.request.urlopen", side_effect=ConnectionRefusedError)
+    def test_returns_none_on_connection_refused(self, _mock):
+        assert _probe_server(5111) is None
+
+    @patch("src.session_dashboard.urllib.request.urlopen", side_effect=TimeoutError)
+    def test_returns_none_on_timeout(self, _mock):
+        assert _probe_server(5111) is None
+
+    @patch("src.session_dashboard.urllib.request.urlopen")
+    def test_returns_none_on_bad_json(self, mock_urlopen):
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b"not json"
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        assert _probe_server(5111) is None
+
+
+# ---------------------------------------------------------------------------
+# _kill_pid
+# ---------------------------------------------------------------------------
+
+
+class TestKillPid:
+    @patch("src.session_dashboard.sys")
+    @patch("src.session_dashboard.subprocess.run")
+    def test_uses_taskkill_on_windows(self, mock_run, mock_sys):
+        mock_sys.platform = "win32"
+        _kill_pid(1234)
+        mock_run.assert_called_once_with(
+            ["taskkill", "/F", "/PID", "1234"], capture_output=True, check=False
+        )
+
+    @patch("src.session_dashboard.sys")
+    @patch("src.session_dashboard.os.kill")
+    def test_uses_sigterm_on_unix(self, mock_kill, mock_sys):
+        mock_sys.platform = "linux"
+        import signal
+
+        _kill_pid(1234)
+        mock_kill.assert_called_once_with(1234, signal.SIGTERM)
+
+
+# ---------------------------------------------------------------------------
+# cmd_start — already running detection
+# ---------------------------------------------------------------------------
+
+
+class TestCmdStart:
+    @patch("src.session_dashboard._probe_server", return_value={"pid": 999, "port": "5111"})
+    def test_skips_if_already_running(self, _probe, capsys):
+        args = argparse.Namespace(port=5111, background=False)
+        cmd_start(args)
+        out = capsys.readouterr().out
+        assert "already running" in out.lower()
+        assert "999" in out
+
+
+# ---------------------------------------------------------------------------
+# cmd_stop
+# ---------------------------------------------------------------------------
+
+
+class TestCmdStop:
+    @patch("src.session_dashboard._probe_server", return_value=None)
+    def test_prints_not_running(self, _probe, capsys):
+        cmd_stop(argparse.Namespace(port=5111))
+        out = capsys.readouterr().out
+        assert "not running" in out.lower()
+
+    @patch("src.session_dashboard._kill_pid")
+    @patch(
+        "src.session_dashboard._probe_server",
+        return_value={"pid": 1234, "port": "5111"},
+    )
+    def test_kills_server(self, _probe, mock_kill, capsys):
+        cmd_stop(argparse.Namespace(port=5111))
+        mock_kill.assert_called_once_with(1234)
+        out = capsys.readouterr().out
+        assert "stopped" in out.lower()
+        assert "1234" in out
+
+    @patch(
+        "src.session_dashboard._probe_server",
+        return_value={"port": "5111"},
+    )
+    def test_handles_missing_pid(self, _probe, capsys):
+        cmd_stop(argparse.Namespace(port=5111))
+        out = capsys.readouterr().out
+        assert "did not report a PID" in out
+
+
+# ---------------------------------------------------------------------------
+# cmd_status
+# ---------------------------------------------------------------------------
+
+
+class TestCmdStatus:
+    @patch("src.session_dashboard._probe_server", return_value=None)
+    def test_not_running(self, _probe, capsys):
+        cmd_status(argparse.Namespace(port=5111))
+        out = capsys.readouterr().out
+        assert "not running" in out.lower()
+
+    @patch(
+        "src.session_dashboard._probe_server",
+        return_value={"pid": 4567, "port": "5111"},
+    )
+    def test_running(self, _probe, capsys):
+        cmd_status(argparse.Namespace(port=5111))
+        out = capsys.readouterr().out
+        assert "4567" in out
+        assert "running" in out.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -142,20 +281,15 @@ class TestUpgradeRefreshMessage:
     @patch("src.session_dashboard.subprocess.Popen")
     @patch("shutil.which", return_value="copilot-dashboard")
     @patch("src.session_dashboard.subprocess.run")
-    @patch("src.session_dashboard._read_pid_file", return_value=12345)
-    @patch("os.kill")
-    @patch("os.path.exists", return_value=True)
-    @patch("os.remove")
-    def test_prints_refresh_message(
-        self, _rm, _exists, _kill, _read_pid, mock_run, _which, _popen, capsys
-    ):
+    @patch("src.session_dashboard._probe_server", return_value={"pid": 12345, "port": "5111"})
+    @patch("src.session_dashboard._kill_pid")
+    def test_prints_refresh_message(self, _kill, _probe, mock_run, _which, _popen, capsys):
         # pip upgrade succeeds
         mock_run.side_effect = [
-            MagicMock(returncode=0),  # taskkill / stop
             MagicMock(returncode=0),  # pip install
             MagicMock(returncode=0, stdout="0.8.0\n"),  # version check
         ]
-        cmd_upgrade(argparse.Namespace())
+        cmd_upgrade(argparse.Namespace(port=5111))
         out = capsys.readouterr().out
         assert "refresh your browser" in out.lower()
 
