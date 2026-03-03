@@ -5,7 +5,7 @@
 
 import { useTheme, useVersion } from "../hooks";
 import type { Palette } from "../hooks";
-import { useAppState } from "../state";
+import { useAppState, useAppDispatch } from "../state";
 import { PALETTE_OPTIONS } from "../constants";
 
 interface HeaderProps {
@@ -24,7 +24,8 @@ export default function Header({
 }: HeaderProps) {
   const { theme, toggleMode, setPalette } = useTheme();
   const { versionInfo, updating, doUpdate } = useVersion(initialVersion);
-  const { serverPid } = useAppState();
+  const { serverPid, widgetsCollapsed } = useAppState();
+  const dispatch = useAppDispatch();
 
   const showUpdateModal = versionInfo.update_available && !updating;
 
@@ -101,6 +102,13 @@ export default function Header({
 
       <div className="header-right">
         <div className="theme-controls">
+          <button
+            className="theme-btn"
+            onClick={() => dispatch({ type: "TOGGLE_WIDGETS_COLLAPSED" })}
+            title={widgetsCollapsed ? "Show stats widgets" : "Hide stats widgets"}
+          >
+            {widgetsCollapsed ? "📊 Show Stats" : "📊 Hide Stats"}
+          </button>
           <button
             className="theme-btn"
             onClick={toggleMode}

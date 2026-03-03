@@ -30,7 +30,7 @@ const INITIAL_VERSION = "dev";
 function Dashboard() {
   const state = useAppState();
   const dispatch = useAppDispatch();
-  const { sessions, remoteSessions, processes, currentTab, currentView, searchFilter } = state;
+  const { sessions, remoteSessions, processes, currentTab, currentView, searchFilter, widgetsCollapsed } = state;
 
   // Start polling
   useSessions();
@@ -89,7 +89,7 @@ function Dashboard() {
       />
 
       <div className="container">
-        <StatsRow active={active} processes={processes} />
+        {!widgetsCollapsed && <StatsRow active={active} processes={processes} />}
         <TabBar activeCount={active.length} previousCount={previous.length} />
         <SearchBar />
 

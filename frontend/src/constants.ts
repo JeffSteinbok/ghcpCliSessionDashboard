@@ -48,6 +48,7 @@ export const STORAGE_KEY_MODE = "dash-mode";
 export const STORAGE_KEY_PALETTE = "dash-palette";
 export const STORAGE_KEY_VIEW = "dash-view";
 export const STORAGE_KEY_STARRED = "dash-starred";
+export const STORAGE_KEY_WIDGETS_COLLAPSED = "dash-widgets-collapsed";
 
 // ── Theme options ──────────────────────────────────────────────────────────
 

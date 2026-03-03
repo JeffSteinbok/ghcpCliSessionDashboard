@@ -23,6 +23,7 @@ import {
   DISCONNECT_THRESHOLD,
   STORAGE_KEY_STARRED,
   STORAGE_KEY_VIEW,
+  STORAGE_KEY_WIDGETS_COLLAPSED,
 } from "../constants";
 import type { Session, ProcessMap } from "../types";
 
@@ -53,6 +54,7 @@ export interface AppState {
   expandedSessionIds: Set<string>;
   collapsedGroups: Set<string>;
   starredSessions: Set<string>;
+  widgetsCollapsed: boolean;
   notificationsEnabled: boolean;
   consecutiveFailures: number;
   lastFetchedAt: number | null;
@@ -72,6 +74,7 @@ export function initialState(): AppState {
     expandedSessionIds: new Set(),
     collapsedGroups: new Set(),
     starredSessions: safeParseStarred(),
+    widgetsCollapsed: localStorage.getItem(STORAGE_KEY_WIDGETS_COLLAPSED) === "true",
     notificationsEnabled:
       typeof Notification !== "undefined" &&
       Notification.permission === "granted",
@@ -93,6 +96,7 @@ export type Action =
   | { type: "TOGGLE_EXPAND"; sessionId: string }
   | { type: "TOGGLE_GROUP"; groupId: string }
   | { type: "TOGGLE_STAR"; sessionId: string }
+  | { type: "TOGGLE_WIDGETS_COLLAPSED" }
   | { type: "SET_NOTIFICATIONS"; enabled: boolean }
   | { type: "RECORD_FETCH_SUCCESS" }
   | { type: "RECORD_FETCH_FAILURE" }
@@ -145,6 +149,9 @@ export function appReducer(state: AppState, action: Action): AppState {
       return { ...state, starredSessions: next };
     }
 
+    case "TOGGLE_WIDGETS_COLLAPSED":
+      return { ...state, widgetsCollapsed: !state.widgetsCollapsed };
+
     case "SET_NOTIFICATIONS":
       return { ...state, notificationsEnabled: action.enabled };
 
@@ -187,6 +194,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY_STARRED, JSON.stringify([...state.starredSessions]));
   }, [state.starredSessions]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_WIDGETS_COLLAPSED, String(state.widgetsCollapsed));
+  }, [state.widgetsCollapsed]);
 
   return (
     <AppStateContext.Provider value={state}>
