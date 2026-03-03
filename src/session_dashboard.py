@@ -10,7 +10,13 @@ import signal
 import subprocess
 import sys
 
-from .constants import DEFAULT_PORT, LOCALHOST, MIN_PYTHON_VERSION, PYTHON_VERSION_TIMEOUT
+from .constants import (
+    DASHBOARD_LOG_FILE,
+    DEFAULT_PORT,
+    LOCALHOST,
+    MIN_PYTHON_VERSION,
+    PYTHON_VERSION_TIMEOUT,
+)
 from .logging_config import setup_logging
 
 PKG_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -22,6 +28,7 @@ BANNER = f"""\
   Copilot Dashboard v{__version__}
   By Jeff Steinbok — {__repository__}
   Open http://localhost:{{port}}
+  Log file: {DASHBOARD_LOG_FILE}
 """
 
 
