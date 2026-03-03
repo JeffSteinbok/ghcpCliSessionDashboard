@@ -7,7 +7,7 @@
  *   showToast("Could not find tab", "error");
  */
 
-import { useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 
 type ToastType = "success" | "error" | "info";
 
@@ -31,13 +31,18 @@ export function ToastContainer() {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const nextId = useRef(0);
 
-  _dispatch = useCallback((message: string, type: ToastType) => {
+  const dispatch = useCallback((message: string, type: ToastType) => {
     const id = nextId.current++;
     setToasts((prev) => [...prev, { id, message, type }]);
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, TOAST_DURATION_MS);
   }, []);
+
+  useEffect(() => {
+    _dispatch = dispatch;
+    return () => { _dispatch = null; };
+  }, [dispatch]);
 
   if (!toasts.length) return null;
 
