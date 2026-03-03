@@ -5,9 +5,7 @@ import sys
 from unittest.mock import MagicMock, call, patch
 
 import pytest
-from fastapi.testclient import TestClient
 
-from src.dashboard_api import app
 from src.session_dashboard import (
     TASK_NAME,
     _get_autostart_cmd_str,
@@ -165,11 +163,6 @@ class TestUpgradeRefreshMessage:
 # ---------------------------------------------------------------------------
 # API: /api/autostart endpoints
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def client():
-    return TestClient(app)
 
 
 class TestApiAutostartStatus:
