@@ -137,6 +137,8 @@ class ServerInfoResponse(BaseModel):
     pid: int
     port: str
     sync_folder: str | None = None
+    log_file: str | None = None
+    log_level: str = "INFO"
 
 
 class AutostartStatusResponse(BaseModel):
@@ -150,3 +152,4 @@ class SettingsResponse(BaseModel):
     """Response for GET/PUT /api/settings — dashboard configuration."""
 
     sync_enabled: bool = True
+    log_level: str = "INFO"

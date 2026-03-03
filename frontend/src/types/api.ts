@@ -114,6 +114,8 @@ export interface ServerInfo {
   pid: number;
   port: string;
   sync_folder: string | null;
+  log_file: string | null;
+  log_level: string;
 }
 
 /** GET /api/autostart response. */
@@ -125,4 +127,5 @@ export interface AutostartStatus {
 /** GET/PUT /api/settings response. */
 export interface DashboardSettings {
   sync_enabled: boolean;
+  log_level: string;
 }

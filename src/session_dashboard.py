@@ -11,6 +11,7 @@ import subprocess
 import sys
 
 from .constants import DEFAULT_PORT, LOCALHOST, MIN_PYTHON_VERSION, PYTHON_VERSION_TIMEOUT
+from .logging_config import setup_logging
 
 PKG_DIR = os.path.dirname(os.path.abspath(__file__))
 PID_FILE = os.path.join(PKG_DIR, ".dashboard.pid")
@@ -91,6 +92,7 @@ def cmd_serve(args):
 
     from .sync import resolve_sync_folder
 
+    setup_logging(level=getattr(args, "log_level", None))
     _print_sync_info(resolve_sync_folder())
     uvicorn.run(
         "src.dashboard_api:app",
@@ -114,6 +116,7 @@ def cmd_start(args):
 
     if args.background:
         python = _find_python()
+        log_level = getattr(args, "log_level", None)
         # Re-invoke as a module so relative imports work
         pkg = __spec__.parent if __spec__ else None
         if pkg:
@@ -136,6 +139,8 @@ def cmd_start(args):
                 str(args.port),
             ]
             repo_root = os.path.dirname(PKG_DIR)
+        if log_level:
+            cmd.extend(["--log-level", log_level])
         proc = subprocess.Popen(  # pylint: disable=consider-using-with
             cmd,
             cwd=repo_root,
@@ -156,6 +161,7 @@ def cmd_start(args):
 
             from .sync import resolve_sync_folder
 
+            setup_logging(level=getattr(args, "log_level", None))
             print(BANNER.format(port=args.port))
             _print_sync_info(resolve_sync_folder())
             uvicorn.run(
@@ -383,6 +389,12 @@ def main():
     start_p.add_argument(
         "--background", "-b", action="store_true", help="Run as a background process (detached)"
     )
+    start_p.add_argument(
+        "--log-level",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        default=None,
+        help="Logging verbosity (default: INFO, or value from config)",
+    )
 
     sub.add_parser("stop", help="Stop the background dashboard server")
     sub.add_parser("status", help="Check if the dashboard server is running")
@@ -401,6 +413,7 @@ def main():
 
     serve_p = sub.add_parser("_serve", help=argparse.SUPPRESS)
     serve_p.add_argument("--port", type=int, default=DEFAULT_PORT)
+    serve_p.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default=None)
 
     args = parser.parse_args()
     if not args.command:

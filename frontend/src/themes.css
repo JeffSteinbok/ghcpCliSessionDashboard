@@ -263,6 +263,14 @@ button.hamburger-item {
   transform: translateX(16px);
 }
 
+/* Select dropdown in hamburger menu */
+.hamburger-select { cursor: pointer; gap: 12px; }
+.hamburger-select select {
+  background: var(--surface); color: var(--text); border: 1px solid var(--border);
+  border-radius: 4px; padding: 2px 6px; font-size: 0.85em; cursor: pointer;
+  margin-left: auto;
+}
+
 /* ===== CONTAINER ===== */
 .container { max-width: 1280px; margin: 0 auto; padding: 20px 24px; }
 
