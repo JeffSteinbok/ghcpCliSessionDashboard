@@ -7,6 +7,7 @@ import { useTheme, useVersion } from "../hooks";
 import type { Palette } from "../hooks";
 import { useAppState } from "../state";
 import { PALETTE_OPTIONS } from "../constants";
+import HamburgerMenu from "./HamburgerMenu";
 
 interface HeaderProps {
   /** Version string from the Python package, e.g. "1.2.3". */
@@ -89,14 +90,6 @@ export default function Header({
           {updating && " ⏳ Updating…"}
           {showUpdateModal && " ⬆"}
         </span>
-        &nbsp;&bull;&nbsp;
-        <a
-          href="https://github.com/JeffSteinbok/ghcpCliDashboard"
-          target="_blank"
-          rel="noreferrer"
-        >
-          What is this?
-        </a>
       </div>
 
       <div className="header-right">
@@ -125,6 +118,7 @@ export default function Header({
           <span className="refresh-dot" />
           <span id="last-updated">{lastUpdated}</span>
         </div>
+        <HamburgerMenu />
       </div>
 
       {/* Server PID — small fixed footer element */}

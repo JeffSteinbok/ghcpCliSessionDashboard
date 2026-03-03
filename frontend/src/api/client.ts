@@ -13,6 +13,7 @@ import type {
   VersionInfo,
   ServerInfo,
   AutostartStatus,
+  DashboardSettings,
 } from "../types";
 
 /** Generic GET helper — throws on non-2xx responses. */
@@ -25,6 +26,17 @@ async function get<T>(url: string): Promise<T> {
 /** Generic POST helper — throws on non-2xx responses. */
 async function post<T>(url: string): Promise<T> {
   const resp = await fetch(url, { method: "POST" });
+  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+  return resp.json() as Promise<T>;
+}
+
+/** Generic PUT+JSON helper — throws on non-2xx responses. */
+async function put<T>(url: string, body: unknown): Promise<T> {
+  const resp = await fetch(url, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
   if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
   return resp.json() as Promise<T>;
 }
@@ -108,4 +120,23 @@ export function fetchAutostartStatus(): Promise<AutostartStatus> {
 /** Enable autostart via the backend (Windows Task Scheduler). */
 export function enableAutostart(): Promise<{ success: boolean; message: string }> {
   return post("/api/autostart/enable");
+}
+
+/** Disable autostart via the backend. */
+export function disableAutostart(): Promise<{ success: boolean; message: string }> {
+  return post("/api/autostart/disable");
+}
+
+// ── Settings ─────────────────────────────────────────────────────────────────
+
+/** Fetch current dashboard settings (sync toggle, etc.). */
+export function fetchSettings(): Promise<DashboardSettings> {
+  return get<DashboardSettings>("/api/settings");
+}
+
+/** Update dashboard settings. */
+export function updateSettings(
+  patch: Partial<DashboardSettings>,
+): Promise<DashboardSettings> {
+  return put<DashboardSettings>("/api/settings", patch);
 }

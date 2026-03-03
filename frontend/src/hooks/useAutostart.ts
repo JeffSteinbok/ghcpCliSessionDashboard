@@ -1,60 +1,72 @@
 /**
- * Hook that checks autostart status once on mount and provides
- * state for the autostart prompt popover.
+ * Hook that checks autostart status and provides toggle functionality
+ * for the hamburger menu, plus the one-time prompt popover.
  */
 
 import { useEffect, useState, useCallback } from "react";
-import { fetchAutostartStatus, enableAutostart } from "../api";
+import { fetchAutostartStatus, enableAutostart, disableAutostart } from "../api";
 
 const DISMISSED_KEY = "copilot-dashboard-autostart-dismissed";
 
 interface AutostartState {
-  /** Whether to show the popover prompt */
+  /** Whether autostart is supported on this platform */
+  supported: boolean;
+  /** Whether autostart is currently enabled */
+  enabled: boolean;
+  /** Whether to show the one-time popover prompt */
   showPrompt: boolean;
-  /** User clicked "Enable" — request in flight */
-  enabling: boolean;
-  /** Call to enable autostart */
+  /** Request in flight */
+  toggling: boolean;
+  /** Toggle autostart on or off */
+  toggle: (enabled: boolean) => void;
+  /** Call to enable autostart (from popover) */
   enable: () => void;
   /** Call to dismiss the popover permanently */
   dismiss: () => void;
 }
 
 export function useAutostart(): AutostartState {
+  const [supported, setSupported] = useState(false);
+  const [enabled, setEnabled] = useState(false);
   const [showPrompt, setShowPrompt] = useState(false);
-  const [enabling, setEnabling] = useState(false);
+  const [toggling, setToggling] = useState(false);
 
   useEffect(() => {
-    // Don't prompt if user previously dismissed
-    if (localStorage.getItem(DISMISSED_KEY)) return;
-
     fetchAutostartStatus()
       .then((status) => {
-        if (status.supported && !status.enabled) {
+        setSupported(status.supported);
+        setEnabled(status.enabled);
+        // Show prompt if supported, not enabled, and not previously dismissed
+        if (status.supported && !status.enabled && !localStorage.getItem(DISMISSED_KEY)) {
           setShowPrompt(true);
         }
       })
       .catch(() => {});
   }, []);
 
-  const enable = useCallback(() => {
-    setEnabling(true);
-    enableAutostart()
+  const toggle = useCallback((newEnabled: boolean) => {
+    setToggling(true);
+    const action = newEnabled ? enableAutostart() : disableAutostart();
+    action
       .then((res) => {
         if (res.success) {
-          localStorage.setItem(DISMISSED_KEY, "1");
-          setShowPrompt(false);
-        } else {
-          alert(`Could not enable autostart: ${res.message}`);
+          setEnabled(newEnabled);
+          if (newEnabled) {
+            localStorage.setItem(DISMISSED_KEY, "1");
+            setShowPrompt(false);
+          }
         }
       })
-      .catch(() => alert("Failed to enable autostart."))
-      .finally(() => setEnabling(false));
+      .catch(() => {})
+      .finally(() => setToggling(false));
   }, []);
+
+  const enable = useCallback(() => toggle(true), [toggle]);
 
   const dismiss = useCallback(() => {
     localStorage.setItem(DISMISSED_KEY, "1");
     setShowPrompt(false);
   }, []);
 
-  return { showPrompt, enabling, enable, dismiss };
+  return { supported, enabled, showPrompt, toggling, toggle, enable, dismiss };
 }

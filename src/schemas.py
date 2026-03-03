@@ -144,3 +144,9 @@ class AutostartStatusResponse(BaseModel):
 
     supported: bool
     enabled: bool
+
+
+class SettingsResponse(BaseModel):
+    """Response for GET/PUT /api/settings — dashboard configuration."""
+
+    sync_enabled: bool = True

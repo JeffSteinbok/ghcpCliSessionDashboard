@@ -6,9 +6,12 @@ export {
   fetchRemoteSessions,
   fetchVersion,
   fetchServerInfo,
+  fetchSettings,
+  updateSettings,
   focusSession,
   killSession,
   triggerUpdate,
   fetchAutostartStatus,
   enableAutostart,
+  disableAutostart,
 } from "./client";

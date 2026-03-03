@@ -6,7 +6,7 @@
 import { useAutostart } from "../hooks";
 
 export default function AutostartPopover() {
-  const { showPrompt, enabling, enable, dismiss } = useAutostart();
+  const { showPrompt, toggling, enable, dismiss } = useAutostart();
 
   if (!showPrompt) return null;
 
@@ -52,19 +52,19 @@ export default function AutostartPopover() {
         </button>
         <button
           onClick={enable}
-          disabled={enabling}
+          disabled={toggling}
           style={{
             background: "var(--accent, #58a6ff)",
             border: "none",
             color: "#fff",
             borderRadius: 6,
             padding: "5px 14px",
-            cursor: enabling ? "wait" : "pointer",
+            cursor: toggling ? "wait" : "pointer",
             fontSize: 13,
             fontWeight: 600,
           }}
         >
-          {enabling ? "Enabling…" : "Enable"}
+          {toggling ? "Enabling…" : "Enable"}
         </button>
       </div>
     </div>

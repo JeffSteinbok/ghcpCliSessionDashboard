@@ -39,6 +39,7 @@ from .claude_code import (
     get_running_claude_sessions,
 )
 from .constants import (
+    DASHBOARD_CONFIG_PATH,
     PYPI_FETCH_TIMEOUT,
     PYPI_PACKAGE_URL,
     RECENT_ACTIVITY_MAX_LEN,
@@ -65,6 +66,7 @@ from .schemas import (
     ServerInfoResponse,
     SessionDetailResponse,
     SessionResponse,
+    SettingsResponse,
     VersionResponse,
 )
 from .sync import export_sessions, read_remote_sessions, resolve_sync_folder
@@ -770,6 +772,82 @@ def api_autostart_enable(request: Request):
         return {"success": True, "message": "Autostart enabled."}
     except OSError as e:
         return {"success": False, "message": f"Failed: {e}"}
+
+
+@app.post("/api/autostart/disable", response_model=ActionResponse)
+def api_autostart_disable():
+    """Disable autostart by removing the Windows HKCU Run registry value."""
+    if sys.platform != "win32":
+        return {"success": False, "message": "Autostart is only supported on Windows."}
+
+    import winreg
+
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
+            winreg.DeleteValue(key, _AUTOSTART_VALUE_NAME)
+        return {"success": True, "message": "Autostart disabled."}
+    except FileNotFoundError:
+        return {"success": True, "message": "Autostart was already disabled."}
+    except OSError as e:
+        return {"success": False, "message": f"Failed: {e}"}
+
+
+# ── Settings (sync toggle) ──────────────────────────────────────────────────
+
+
+def _read_dashboard_config() -> dict:
+    """Read the full dashboard-config.json, returning {} on error."""
+    if not os.path.exists(DASHBOARD_CONFIG_PATH):
+        return {}
+    try:
+        with open(DASHBOARD_CONFIG_PATH, encoding="utf-8") as f:
+            result: dict = json.load(f)
+            return result
+    except Exception:
+        return {}
+
+
+def _write_dashboard_config(cfg: dict) -> None:
+    """Write dashboard-config.json atomically."""
+    os.makedirs(os.path.dirname(DASHBOARD_CONFIG_PATH), exist_ok=True)
+    tmp = DASHBOARD_CONFIG_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2)
+    os.replace(tmp, DASHBOARD_CONFIG_PATH)
+
+
+def _reload_sync_folder() -> None:
+    """Re-resolve the sync folder after a settings change."""
+    global _sync_folder
+    _sync_folder = resolve_sync_folder()
+
+
+@app.get("/api/settings", response_model=SettingsResponse)
+def api_get_settings():
+    """Return current dashboard settings (sync toggle state)."""
+    cfg = _read_dashboard_config()
+    sync_cfg = cfg.get("sync", {})
+    sync_enabled = sync_cfg.get("enabled", True) if isinstance(sync_cfg, dict) else True
+    return {"sync_enabled": sync_enabled}
+
+
+@app.put("/api/settings", response_model=SettingsResponse)
+async def api_put_settings(request: Request):
+    """Update dashboard settings (currently just the sync toggle)."""
+    body = await request.json()
+    cfg = _read_dashboard_config()
+
+    if "sync_enabled" in body:
+        if "sync" not in cfg or not isinstance(cfg.get("sync"), dict):
+            cfg["sync"] = {}
+        cfg["sync"]["enabled"] = bool(body["sync_enabled"])
+
+    _write_dashboard_config(cfg)
+    _reload_sync_folder()
+
+    sync_cfg = cfg.get("sync", {})
+    sync_enabled = sync_cfg.get("enabled", True) if isinstance(sync_cfg, dict) else True
+    return {"sync_enabled": sync_enabled}
 
 
 # ── PWA / static routes ─────────────────────────────────────────────────────

@@ -121,3 +121,8 @@ export interface AutostartStatus {
   supported: boolean;
   enabled: boolean;
 }
+
+/** GET/PUT /api/settings response. */
+export interface DashboardSettings {
+  sync_enabled: boolean;
+}
