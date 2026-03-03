@@ -3,7 +3,7 @@
   "info": {
     "title": "Copilot Dashboard",
     "description": "Monitor all your GitHub Copilot CLI sessions in real-time.",
-    "version": "0.8.0"
+    "version": "0.8.1"
   },
   "paths": {
     "/api/sessions": {
@@ -335,7 +335,7 @@
     "/api/settings": {
       "get": {
         "summary": "Api Get Settings",
-        "description": "Return current dashboard settings (sync toggle state).",
+        "description": "Return current dashboard settings.",
         "operationId": "api_get_settings_api_settings_get",
         "responses": {
           "200": {
@@ -352,7 +352,7 @@
       },
       "put": {
         "summary": "Api Put Settings",
-        "description": "Update dashboard settings (currently just the sync toggle).",
+        "description": "Update dashboard settings.",
         "operationId": "api_put_settings_api_settings_put",
         "responses": {
           "200": {
@@ -624,6 +624,22 @@
               }
             ],
             "title": "Sync Folder"
+          },
+          "log_file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Log File"
+          },
+          "log_level": {
+            "type": "string",
+            "title": "Log Level",
+            "default": "INFO"
           }
         },
         "type": "object",
@@ -859,6 +875,11 @@
             "type": "boolean",
             "title": "Sync Enabled",
             "default": true
+          },
+          "log_level": {
+            "type": "string",
+            "title": "Log Level",
+            "default": "INFO"
           }
         },
         "type": "object",
