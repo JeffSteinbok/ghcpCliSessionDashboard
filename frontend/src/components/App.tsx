@@ -109,7 +109,7 @@ function Dashboard() {
 
           {/* Remote Sessions */}
           {remoteSessions.length > 0 && (
-            <div className="remote-sessions-section">
+            <div className="remote-sessions-section" style={{ marginTop: "2rem" }}>
               <h3 className="remote-sessions-header">🖥️ Remote Sessions ({remoteSessions.length})</h3>
               {currentView === "tile" ? (
                 <SessionGrid sessions={remoteSessions} processes={{}} isActive />

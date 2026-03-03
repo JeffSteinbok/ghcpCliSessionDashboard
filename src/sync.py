@@ -202,6 +202,12 @@ def read_remote_sessions(sync_folder: Path) -> list[dict]:
                     dt = datetime.fromisoformat(last_sync)
                     age = now - dt.timestamp()
                     if age > SYNC_STALE_THRESHOLD:
+                        # Delete stale machine directory
+                        try:
+                            shutil.rmtree(machine_dir)
+                            logger.info("Removed stale remote machine dir: %s", machine_dir.name)
+                        except OSError as e:
+                            logger.debug("Failed to remove stale dir %s: %s", machine_dir, e)
                         continue
             except Exception:
                 continue

@@ -168,8 +168,8 @@ SYNC_FOLDER_NAME = "CopilotDashboard"
 SYNC_EXPORT_INTERVAL = 30
 """How often to export local sessions to the sync folder (seconds)."""
 
-SYNC_STALE_THRESHOLD = 300
-"""Ignore remote machine data older than this (seconds). 5 minutes."""
+SYNC_STALE_THRESHOLD = 14400
+"""Ignore remote machine data older than this (seconds). 4 hours."""
 
 # ── Grouping defaults ─────────────────────────────────────────────────────────
 
