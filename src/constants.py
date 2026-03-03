@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import os
 
+import platformdirs
+
 # ── Python version ────────────────────────────────────────────────────────────
 
 MIN_PYTHON_VERSION = (3, 11)
@@ -31,7 +33,13 @@ COPILOT_DIR = os.path.join(os.path.expanduser("~"), ".copilot")
 SESSION_STATE_DIR = os.path.join(COPILOT_DIR, "session-state")
 SESSION_STORE_DB = os.path.join(COPILOT_DIR, "session-store.db")
 DASHBOARD_CONFIG_PATH = os.path.join(COPILOT_DIR, "dashboard-config.json")
-DASHBOARD_LOG_FILE = os.path.join(COPILOT_DIR, "dashboard.log")
+
+# Log directory uses OS-standard location via platformdirs:
+#   Windows:  %LOCALAPPDATA%\ghcpCliDashboard\Logs\
+#   macOS:    ~/Library/Logs/ghcpCliDashboard/
+#   Linux:    ~/.local/state/ghcpCliDashboard/log/
+DASHBOARD_LOG_DIR = platformdirs.user_log_dir("ghcpCliDashboard", appauthor=False)
+DASHBOARD_LOG_FILE = os.path.join(DASHBOARD_LOG_DIR, "dashboard.log")
 
 CLAUDE_DIR = os.path.join(os.path.expanduser("~"), ".claude")
 CLAUDE_PROJECTS_DIR = os.path.join(CLAUDE_DIR, "projects")
