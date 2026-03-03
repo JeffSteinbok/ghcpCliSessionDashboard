@@ -142,20 +142,17 @@ class TestUpgradeRefreshMessage:
     @patch("src.session_dashboard.subprocess.Popen")
     @patch("shutil.which", return_value="copilot-dashboard")
     @patch("src.session_dashboard.subprocess.run")
-    @patch("src.session_dashboard._read_pid_file", return_value=12345)
-    @patch("os.kill")
-    @patch("os.path.exists", return_value=True)
-    @patch("os.remove")
+    @patch("src.session_dashboard._probe_server", return_value={"pid": 12345, "port": "5111"})
+    @patch("src.session_dashboard._kill_pid")
     def test_prints_refresh_message(
-        self, _rm, _exists, _kill, _read_pid, mock_run, _which, _popen, capsys
+        self, _kill, _probe, mock_run, _which, _popen, capsys
     ):
         # pip upgrade succeeds
         mock_run.side_effect = [
-            MagicMock(returncode=0),  # taskkill / stop
             MagicMock(returncode=0),  # pip install
             MagicMock(returncode=0, stdout="0.8.0\n"),  # version check
         ]
-        cmd_upgrade(argparse.Namespace())
+        cmd_upgrade(argparse.Namespace(port=5111))
         out = capsys.readouterr().out
         assert "refresh your browser" in out.lower()
 
