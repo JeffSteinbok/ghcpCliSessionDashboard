@@ -7,8 +7,7 @@
  *   showToast("Could not find tab", "error");
  */
 
-import { useEffect, useRef, useState, createContext, useContext, useCallback } from "react";
-import type { ReactNode } from "react";
+import { useRef, useState, useCallback } from "react";
 
 type ToastType = "success" | "error" | "info";
 
