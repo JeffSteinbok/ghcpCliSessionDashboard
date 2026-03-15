@@ -89,7 +89,7 @@ export default function SessionCard({ session: s, processInfo }: SessionCardProp
               {(isRunning || isRemote) && s.intent ? `🤖 ${s.intent}` : s.summary || "(Untitled session)"}
             </div>
             {isRunning && processInfo!.yolo && (
-              <span className="badge badge-yolo" style={{ flexShrink: 0 }}>🔥 YOLO</span>
+              <span className="badge badge-yolo" style={{ flexShrink: 0 }} data-tip="YOLO mode enabled">🔥 YOLO</span>
             )}
             {isRemote && (
               <span className="badge badge-mcp" style={{ flexShrink: 0 }} data-tip={`Remote machine: ${s.machine_name}`}>

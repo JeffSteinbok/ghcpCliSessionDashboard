@@ -3,11 +3,8 @@
 import json
 from unittest.mock import patch
 
-import pytest
-
 from src.constants import DEFAULT_GROUP_NAME
 from src.grouping import _load_config, get_group_name
-
 
 # ---------------------------------------------------------------------------
 # _load_config (covers lines 38-43)
@@ -102,3 +99,25 @@ class TestGetGroupName:
             session = {"cwd": None, "repository": None, "summary": None}
             result = get_group_name(session)
         assert result == DEFAULT_GROUP_NAME
+
+    def test_home_directory_returns_home_label(self, tmp_path):
+        """CWD matching the user's home directory should return '🏠 Home'."""
+        import os
+
+        missing = str(tmp_path / "nonexistent.json")
+        home = os.path.expanduser("~").replace("\\", "/")
+        with patch("src.grouping.DASHBOARD_CONFIG_PATH", missing):
+            session = {"cwd": home, "repository": "", "summary": ""}
+            result = get_group_name(session)
+        assert result == "🏠 Home"
+
+    def test_home_directory_windows_path(self, tmp_path):
+        """Windows-style home path (backslashes) should also match."""
+        import os
+
+        missing = str(tmp_path / "nonexistent.json")
+        home = os.path.expanduser("~")  # native path (backslashes on Windows)
+        with patch("src.grouping.DASHBOARD_CONFIG_PATH", missing):
+            session = {"cwd": home, "repository": "", "summary": ""}
+            result = get_group_name(session)
+        assert result == "🏠 Home"

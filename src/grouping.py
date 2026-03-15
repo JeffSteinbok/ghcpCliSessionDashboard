@@ -85,6 +85,11 @@ def get_group_name(session: dict) -> str:
 
     # --- 3. CWD-based: last meaningful directory segment ---
     if cwd:
+        # If the CWD is the user's home directory, use a friendly label
+        home = os.path.expanduser("~").replace("\\", "/").rstrip("/")
+        if cwd.rstrip("/").lower() == home.lower():
+            return "🏠 Home"
+
         skip = SKIP_DIRS | {d.lower() for d in extra_skip}
         parts = cwd.rstrip("/").split("/")
         # Filter out drive letters, common dirs, and user-configured skips

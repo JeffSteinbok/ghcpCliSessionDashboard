@@ -364,11 +364,15 @@ def _sessions_from_events() -> list[dict]:
 
                         etype = evt.get("type", "")
 
-                        if etype in ("session.start", "session.resume") and not cwd:
+                        if etype in ("session.start", "session.resume"):
                             ctx = evt.get("data", {}).get("context", {})
-                            cwd = ctx.get("cwd", "")
-                            branch = ctx.get("branch", "")
-                            repository = ctx.get("repository", "")
+                            # Always overwrite so the latest resume context wins
+                            if ctx.get("cwd"):
+                                cwd = ctx["cwd"]
+                            if ctx.get("branch"):
+                                branch = ctx["branch"]
+                            if ctx.get("repository"):
+                                repository = ctx["repository"]
 
                         elif etype == "user.message" and not summary:
                             content = evt.get("data", {}).get("content", "")

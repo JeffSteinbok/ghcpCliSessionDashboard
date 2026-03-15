@@ -4,7 +4,7 @@
 
 import type { Session, ProcessInfo } from "../types";
 import { COPY_FEEDBACK_MS } from "../constants";
-import { STATE_LABELS, STATE_BADGE_CLASS, TILE_STATE_CLASS } from "../utils";
+import { TILE_STATE_CLASS } from "../utils";
 import { useAppState, useAppDispatch } from "../state";
 import { focusSession, killSession } from "../api";
 import { showToast } from "./Toast";
@@ -27,8 +27,9 @@ export default function SessionTile({ session: s, processInfo, onOpenDetail }: S
   const isStarred = starredSessions.has(s.id);
   const tileClass = (isRunning || isRemote) ? (TILE_STATE_CLASS[state] || "") : "";
 
+  const displayTitle = (isRunning || isRemote) && s.intent ? s.intent : s.summary || "(Untitled)";
   const handleClick = () => {
-    if (!isRemote) onOpenDetail(s.id, s.summary || "(Untitled)");
+    if (!isRemote) onOpenDetail(s.id, displayTitle);
   };
   const stop = (e: React.MouseEvent) => e.stopPropagation();
 
@@ -79,7 +80,7 @@ export default function SessionTile({ session: s, processInfo, onOpenDetail }: S
           </div>
         )}
         {isRunning && processInfo!.yolo && (
-          <span className="badge badge-yolo" style={{ flexShrink: 0 }}>🔥</span>
+          <span className="badge badge-yolo" style={{ flexShrink: 0 }} data-tip="YOLO mode enabled">🔥</span>
         )}
       </div>
 
@@ -112,11 +113,7 @@ export default function SessionTile({ session: s, processInfo, onOpenDetail }: S
 
       {/* Badge row */}
       <div className="tile-meta">
-        {(isRunning || isRemote) && state && state !== "unknown" && (
-          <span className={`badge ${STATE_BADGE_CLASS[state] || "badge-active"}`}>
-            {STATE_LABELS[state] || state}
-          </span>
-        )}
+        {/* State is already shown by the live-dot — no badge needed here */}
         {isRunning && processInfo!.bg_tasks > 0 && (
           <BgTaskPopover
             count={processInfo!.bg_tasks}

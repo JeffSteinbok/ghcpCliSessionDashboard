@@ -45,6 +45,22 @@ describe("initialState()", () => {
     const s = initialState();
     expect(s.currentView).toBe("list");
   });
+
+  it("defaults groupBy to none", () => {
+    expect(state.groupBy).toBe("none");
+  });
+
+  it("reads groupBy preference from localStorage", () => {
+    store["dash-group-by"] = "machine";
+    const s = initialState();
+    expect(s.groupBy).toBe("machine");
+  });
+
+  it("ignores invalid groupBy in localStorage", () => {
+    store["dash-group-by"] = "invalid";
+    const s = initialState();
+    expect(s.groupBy).toBe("none");
+  });
 });
 
 describe("appReducer", () => {
@@ -106,6 +122,22 @@ describe("appReducer", () => {
   it("SET_SERVER_PID stores pid", () => {
     const next = appReducer(state, { type: "SET_SERVER_PID", pid: 9999 });
     expect(next.serverPid).toBe(9999);
+  });
+
+  it("SET_GROUP_BY changes groupBy", () => {
+    const next = appReducer(state, { type: "SET_GROUP_BY", groupBy: "project" });
+    expect(next.groupBy).toBe("project");
+  });
+
+  it("SET_GROUP_BY to machine", () => {
+    const next = appReducer(state, { type: "SET_GROUP_BY", groupBy: "machine" });
+    expect(next.groupBy).toBe("machine");
+  });
+
+  it("SET_GROUP_BY back to none", () => {
+    let next = appReducer(state, { type: "SET_GROUP_BY", groupBy: "project" });
+    next = appReducer(next, { type: "SET_GROUP_BY", groupBy: "none" });
+    expect(next.groupBy).toBe("none");
   });
 });
 

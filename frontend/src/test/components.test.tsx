@@ -149,6 +149,31 @@ describe("SessionCard", () => {
     renderWithProvider(<SessionCard session={s} processInfo={undefined} />);
     expect(screen.getByText(/org\/repo\/main/)).toBeInTheDocument();
   });
+
+  it("copies restart command on copy button click", () => {
+    const s = makeSession({ restart_cmd: "copilot resume --session=card-abc" });
+    renderWithProvider(<SessionCard session={s} processInfo={undefined} />);
+    const copyBtn = screen.getByText("📋 Copy");
+    fireEvent.click(copyBtn);
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("copilot resume --session=card-abc");
+  });
+
+  it("copies session ID on ID button click", () => {
+    const s = makeSession({ id: "card-sess-id" });
+    renderWithProvider(<SessionCard session={s} processInfo={undefined} />);
+    const idBtn = screen.getByText("🪪");
+    fireEvent.click(idBtn);
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("card-sess-id");
+  });
+
+  it("toggles star when star button clicked", () => {
+    const s = makeSession();
+    const { container } = renderWithProvider(<SessionCard session={s} processInfo={undefined} />);
+    const starBtn = container.querySelector(".star-btn")!;
+    expect(starBtn.textContent).toBe("☆");
+    fireEvent.click(starBtn);
+    expect(starBtn.textContent).toBe("⭐");
+  });
 });
 
 // ── SessionTile ──────────────────────────────────────────────────────────────
@@ -211,9 +236,67 @@ describe("SessionTile", () => {
     expect(screen.getByText(/PID 42/)).toBeInTheDocument();
     expect(screen.getByText("✕")).toBeInTheDocument();
   });
+
+  it("calls onOpenDetail when tile clicked", () => {
+    const s = makeSession({ id: "click-id", summary: "Click me" });
+    const { container } = renderWithProvider(
+      <SessionTile session={s} processInfo={undefined} onOpenDetail={onOpenDetail} />,
+    );
+    fireEvent.click(container.querySelector(".tile-card")!);
+    expect(onOpenDetail).toHaveBeenCalledWith("click-id", "Click me");
+  });
+
+  it("does not call onOpenDetail for remote session", () => {
+    const s = makeSession({ id: "remote-1", machine_name: "remote-host" });
+    const { container } = renderWithProvider(
+      <SessionTile session={s} processInfo={undefined} onOpenDetail={onOpenDetail} />,
+    );
+    fireEvent.click(container.querySelector(".tile-card")!);
+    expect(onOpenDetail).not.toHaveBeenCalled();
+  });
+
+  it("copies restart command on copy button click", () => {
+    const s = makeSession({ restart_cmd: "copilot resume --session=abc" });
+    renderWithProvider(
+      <SessionTile session={s} processInfo={undefined} onOpenDetail={onOpenDetail} />,
+    );
+    const copyBadge = screen.getAllByText("📋")[0];
+    fireEvent.click(copyBadge);
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("copilot resume --session=abc");
+  });
+
+  it("copies session ID on ID button click", () => {
+    const s = makeSession({ id: "sess-id-copy" });
+    renderWithProvider(
+      <SessionTile session={s} processInfo={undefined} onOpenDetail={onOpenDetail} />,
+    );
+    const idBadge = screen.getAllByText("🪪")[0];
+    fireEvent.click(idBadge);
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("sess-id-copy");
+  });
+
+  it("toggles star when star button clicked", () => {
+    const s = makeSession({ id: "star-test" });
+    const { container } = renderWithProvider(
+      <SessionTile session={s} processInfo={undefined} onOpenDetail={onOpenDetail} />,
+    );
+    const starBtn = container.querySelector(".star-btn")!;
+    expect(starBtn.textContent).toBe("☆");
+    fireEvent.click(starBtn);
+    expect(starBtn.textContent).toBe("⭐");
+  });
+
+  it("does not show window_title when it matches intent", () => {
+    const s = makeSession({ intent: "Fixing auth" });
+    const p = makeProcess({ window_title: "🤖 Fixing auth" });
+    const { container } = renderWithProvider(
+      <SessionTile session={s} processInfo={p} onOpenDetail={onOpenDetail} />,
+    );
+    expect(container.querySelector("[data-tip^='Window:']")).toBeNull();
+  });
 });
 
-// ── SessionList ──────────────────────────────────────────────────────────────
+// ── SessionList──────────────────────────────────────────────────────────────
 
 import SessionList from "../components/SessionList";
 
@@ -222,7 +305,8 @@ describe("SessionList", () => {
     renderWithProvider(
       <SessionList sessions={[]} processes={{}} isActive={true} panelId="active" />,
     );
-    expect(screen.getByText("No active sessions detected.")).toBeInTheDocument();
+    // Before first fetch completes, active tab shows loading state
+    expect(screen.getByText("Loading sessions…")).toBeInTheDocument();
   });
 
   it("renders empty message for previous when no sessions", () => {
@@ -629,15 +713,6 @@ describe("SessionTile — interactions", () => {
       <SessionTile session={s} processInfo={p} onOpenDetail={onOpenDetail} />,
     );
     expect(screen.getByText(/Awaiting review/)).toBeInTheDocument();
-  });
-
-  it("shows state badge when running with known state", () => {
-    const s = makeSession();
-    const p = makeProcess({ state: "thinking" });
-    renderWithProvider(
-      <SessionTile session={s} processInfo={p} onOpenDetail={onOpenDetail} />,
-    );
-    expect(screen.getByText(/Thinking/)).toBeInTheDocument();
   });
 
   it("shows checkpoint count when > 0", () => {
@@ -1077,5 +1152,84 @@ describe("SessionDetail", () => {
     await waitFor(() => {
       expect(screen.getByText(/\.\.\./)).toBeInTheDocument();
     });
+  });
+});
+
+// ── SessionGrid ──────────────────────────────────────────────────────────────
+
+import SessionGrid from "../components/SessionGrid";
+
+describe("SessionGrid", () => {
+  it("renders empty message for active when no sessions", () => {
+    renderWithProvider(<SessionGrid sessions={[]} processes={{}} isActive={true} />);
+    // Before first fetch completes, active tab shows loading state
+    expect(screen.getByText("Loading sessions…")).toBeInTheDocument();
+  });
+
+  it("renders empty message for previous when no sessions", () => {
+    renderWithProvider(<SessionGrid sessions={[]} processes={{}} isActive={false} />);
+    expect(screen.getByText("No previous sessions.")).toBeInTheDocument();
+  });
+
+  it("renders tiles for sessions", () => {
+    const sessions = [
+      makeSession({ id: "s1", summary: "First session" }),
+      makeSession({ id: "s2", summary: "Second session" }),
+    ];
+    renderWithProvider(<SessionGrid sessions={sessions} processes={{}} isActive={true} />);
+    expect(screen.getByText("First session")).toBeInTheDocument();
+    expect(screen.getByText("Second session")).toBeInTheDocument();
+  });
+
+  it("shows group headers when groupBy is project", () => {
+    store["dash-group-by"] = "project";
+    const sessions = [
+      makeSession({ id: "s1", summary: "S1", group: "ProjectA" }),
+      makeSession({ id: "s2", summary: "S2", group: "ProjectB" }),
+    ];
+    renderWithProvider(<SessionGrid sessions={sessions} processes={{}} isActive={true} />);
+    expect(screen.getByText(/ProjectA/)).toBeInTheDocument();
+    expect(screen.getByText(/ProjectB/)).toBeInTheDocument();
+    const counts = screen.getAllByText("(1)");
+    expect(counts.length).toBe(2);
+  });
+
+  it("shows group headers when groupBy is machine", () => {
+    store["dash-group-by"] = "machine";
+    const sessions = [
+      makeSession({ id: "s1", summary: "S1", machine_name: "Desktop" }),
+      makeSession({ id: "s2", summary: "S2", machine_name: "Laptop" }),
+    ];
+    const { container } = renderWithProvider(<SessionGrid sessions={sessions} processes={{}} isActive={true} />);
+    const headers = container.querySelectorAll(".group-header");
+    expect(headers.length).toBe(2);
+    const headerTexts = Array.from(headers).map((h) => h.textContent);
+    expect(headerTexts.some((t) => t?.includes("Desktop"))).toBe(true);
+    expect(headerTexts.some((t) => t?.includes("Laptop"))).toBe(true);
+  });
+
+  it("does not show group headers when groupBy is none", () => {
+    const sessions = [
+      makeSession({ id: "s1", summary: "S1", group: "SameGroup" }),
+      makeSession({ id: "s2", summary: "S2", group: "SameGroup" }),
+    ];
+    const { container } = renderWithProvider(
+      <SessionGrid sessions={sessions} processes={{}} isActive={true} />,
+    );
+    expect(container.querySelector(".group-header")).toBeNull();
+  });
+
+  it("collapses group when header clicked", () => {
+    store["dash-group-by"] = "project";
+    const sessions = [
+      makeSession({ id: "s1", summary: "Visible session", group: "MyGroup" }),
+    ];
+    const { container } = renderWithProvider(
+      <SessionGrid sessions={sessions} processes={{}} isActive={true} />,
+    );
+    expect(screen.getByText("Visible session")).toBeInTheDocument();
+    const header = container.querySelector(".group-header")!;
+    fireEvent.click(header);
+    expect(screen.queryByText("Visible session")).not.toBeInTheDocument();
   });
 });

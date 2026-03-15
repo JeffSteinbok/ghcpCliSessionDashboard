@@ -19,11 +19,14 @@ interface SessionGridProps {
 }
 
 export default function SessionGrid({ sessions, processes, isActive }: SessionGridProps) {
-  const { starredSessions, groupBy, collapsedGroups } = useAppState();
+  const { starredSessions, groupBy, collapsedGroups, lastFetchedAt } = useAppState();
   const dispatch = useAppDispatch();
   const [modalSession, setModalSession] = useState<{ id: string; title: string } | null>(null);
 
   if (sessions.length === 0) {
+    if (isActive && lastFetchedAt === null) {
+      return <div className="loading">Loading sessions…</div>;
+    }
     return (
       <div className="empty">
         {isActive ? "No active sessions detected." : "No previous sessions."}

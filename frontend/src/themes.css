@@ -311,11 +311,11 @@ button.hamburger-item {
 
 /* ===== GROUPS ===== */
 .group {
-  margin-bottom: 20px; border: 1px solid var(--group-border);
+  margin-bottom: 12px; border: 1px solid var(--group-border);
   border-radius: 10px; overflow: hidden;
 }
 .group-header {
-  background: var(--surface); padding: 12px 18px; font-weight: 600; font-size: 16px;
+  background: var(--surface); padding: 8px 18px; font-weight: 600; font-size: 16px;
   display: flex; align-items: center; gap: 8px;
   border-bottom: 1px solid var(--group-border); cursor: pointer; user-select: none;
 }
@@ -482,7 +482,7 @@ button.hamburger-item {
 /* ===== TILE VIEW ===== */
 .tile-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 12px;
+  gap: 12px; margin: 12px 0;
 }
 .tile-card {
   background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
@@ -521,6 +521,9 @@ button.hamburger-item {
 
 /* ===== VIEW TOGGLE ===== */
 .view-toggle { display: flex; gap: 4px; }
+.view-toggle .palette-select {
+  color: var(--text2); font-size: 14px;
+}
 .view-btn {
   background: var(--surface2); border: 1px solid var(--border); color: var(--text2);
   border-radius: 6px; padding: 5px 12px; font-size: 14px; cursor: pointer;
@@ -552,7 +555,7 @@ button.hamburger-item {
   padding: 24px; max-width: 700px; width: 95%; max-height: 80vh; overflow-y: auto;
   box-shadow: 0 16px 48px rgba(0,0,0,0.3);
 }
-.detail-modal-header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+.detail-modal-header { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
 .detail-modal-header h2 { font-size: 18px; flex: 1; }
 .detail-modal-header .close-x {
   background: none; border: none; color: var(--text2); font-size: 22px;

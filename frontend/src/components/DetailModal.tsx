@@ -38,16 +38,13 @@ export default function DetailModal({
     <div className="detail-modal-overlay open" onClick={handleOverlayClick}>
       <div className="detail-modal">
         <div className="detail-modal-header">
-          <h2>{title}</h2>
+          <h2>{isRunning && s?.intent ? `🤖 ${title}` : title}</h2>
           <button className="close-x" onClick={onClose}>✕</button>
         </div>
 
         {/* Summary section */}
         {s && (
-          <div className="detail-section" style={{ marginBottom: 12 }}>
-            {isRunning && s.intent && (
-              <div style={{ fontWeight: 600, marginBottom: 4 }}>🤖 {s.intent}</div>
-            )}
+          <div className="detail-section" style={{ marginBottom: 14 }}>
             {s.branch && (
               <div style={{ marginBottom: 4 }}>
                 <span className="branch-badge">

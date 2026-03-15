@@ -638,13 +638,17 @@ def _read_event_data(session_id) -> EventData:
                     continue
 
                 # Fast string pre-checks to avoid JSON parsing every line
-                if ('"session.start"' in line or '"session.resume"' in line) and not result.cwd:
+                if '"session.start"' in line or '"session.resume"' in line:
                     try:
                         evt = json.loads(line)
                         ctx = evt.get("data", {}).get("context", {})
-                        result.cwd = ctx.get("cwd", "")
-                        result.branch = ctx.get("branch", "")
-                        result.repository = ctx.get("repository", "")
+                        # Always overwrite so the latest resume context wins
+                        if ctx.get("cwd"):
+                            result.cwd = ctx["cwd"]
+                        if ctx.get("branch"):
+                            result.branch = ctx["branch"]
+                        if ctx.get("repository"):
+                            result.repository = ctx["repository"]
                     except json.JSONDecodeError:
                         pass
                     continue
