@@ -482,7 +482,7 @@ button.hamburger-item {
 /* ===== TILE VIEW ===== */
 .tile-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 12px;
+  gap: 12px; margin: 12px 0;
 }
 .tile-card {
   background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
